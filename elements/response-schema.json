@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TranscriptionResponse",
+  "description": "Schema for the voice note transcription response",
+  "type": "object",
+  "required": ["title", "description", "transcript", "timestamp", "timestamp_readable"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "A short, descriptive title summarizing the note content",
+      "minLength": 1,
+      "maxLength": 200,
+      "examples": ["Ideas for a Tech Blog", "Meeting Notes from Project Kickoff"]
+    },
+    "description": {
+      "type": "string",
+      "description": "A two-sentence summary of the note's content",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "transcript": {
+      "type": "string",
+      "description": "The edited transcript in Markdown format, with paragraphs and optional subheadings",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the note was processed",
+      "examples": ["2025-11-27T16:58:00Z"]
+    },
+    "timestamp_readable": {
+      "type": "string",
+      "description": "Human-readable timestamp in the format 'DD Mon YYYY HH:MM'",
+      "pattern": "^\\d{1,2} [A-Z][a-z]{2} \\d{4} \\d{2}:\\d{2}$",
+      "examples": ["27 Nov 2025 16:58"]
+    }
+  },
+  "additionalProperties": false
+}

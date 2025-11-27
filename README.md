@@ -1,17 +1,69 @@
-# Gemini Transcription MCP - WIP/Notes
+# Gemini Transcription MCP
 
-![Note: Transcribed Text](https://img.shields.io/badge/⚠️_Note-Transcribed_Text-blue)
+An MCP server that provides audio-to-text transcription using Google's Gemini multimodal API.
 
-*This text was generated from speech!*
+## Overview
 
-This repository is a... placeholder for working on an MCP server that I would like to have on hand frequently.  As I haven't found one that does exactly this I am working on it as a WIP:
+This MCP server provides a single, focused tool for transcribing audio files using Gemini's multimodal capabilities. Unlike conventional speech-to-text services, Gemini can process both audio and a steering prompt simultaneously, enabling transcription with intelligent post-processing in a single API call.
 
-The objective of the MCP server would be to provide the user with the ability to generate textual transcriptions of audio files in binary format. 
+## Why This MCP?
 
-As a multimodal model, Gemini has a significant advantage, in my opinion and experience, over conventional speech to text: this is the ability to provide both an audio file and a steering text as an input. This allows the user to generate an output that combines both transcription and language processing in one single API call and operation. 
+- **Multimodal Advantage**: Gemini processes audio and text instructions together, allowing combined transcription and language processing in one operation
+- **Minimal Context Overhead**: A dedicated single-tool MCP avoids the context bloat that comes with large tool definitions
+- **Built-in Post-Processing**: The transcription prompt is pre-configured, so users simply provide an audio file path and receive a cleaned, structured transcript
 
- The rationale for creating a dedicated MCP server for only this function with Gemini is to avoid the influx of unwanted context that comes when providing large tool definitions. 
- 
- The objective and project here is to create an MCP that only provides for this single API call.
- 
- It takes in the post-processing prompt so that the user simply has to invoke the MCP function, and the audio binary will be returned with the cleanup system prompt or post-processing prompt already baked into the MCP operation and the API call.
+## Features
+
+- Accepts audio file paths (MP3, WAV, OGG, FLAC, AAC, AIFF)
+- Automatic audio downsampling to optimize for Gemini's 16 Kbps processing resolution
+- Returns structured JSON with title, description, transcript, and timestamps
+- Light editing: removes filler words, applies verbal corrections, adds punctuation and paragraph breaks
+
+## Usage
+
+Provide an audio file path, and the MCP returns a JSON response with:
+
+| Field | Description |
+|-------|-------------|
+| `title` | Short descriptive title for the note |
+| `description` | Two-sentence summary |
+| `transcript` | Edited transcript in Markdown format |
+| `timestamp` | ISO 8601 timestamp |
+| `timestamp_readable` | Human-readable timestamp |
+
+## Requirements
+
+- Google Gemini API key (set as `GEMINI_API_KEY` environment variable)
+- Node.js 18+
+
+## Installation
+
+```bash
+npm install
+```
+
+## Configuration
+
+Add to your Claude Code MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "gemini-transcription": {
+      "command": "node",
+      "args": ["path/to/gemini-transcription-mcp/dist/index.js"],
+      "env": {
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+## Status
+
+🚧 Work in Progress
+
+## Disclaimer
+
+This MCP server is being developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.

@@ -1,0 +1,32 @@
+{
+  "name": "gemini-transcription-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for audio transcription using Google Gemini multimodal API",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "mcp",
+    "gemini",
+    "transcription",
+    "audio",
+    "speech-to-text"
+  ],
+  "author": "Daniel Rosehill",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
