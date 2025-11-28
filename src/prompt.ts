@@ -1,3 +1,26 @@
+export const RAW_TRANSCRIPTION_PROMPT = `The audio binary provided contains a voice note dictated by the user. Your task is to return a verbatim transcript of this content.
+
+## Instructions
+
+- Transcribe exactly what is spoken, including filler words ("um," "uh," "like," etc.)
+- Include false starts, corrections, and repetitions as spoken
+- Add basic punctuation only where clearly indicated by pauses
+- Do not edit, clean up, or restructure the content
+
+## Response Format
+
+You MUST respond with valid JSON matching this exact structure:
+
+{
+  "title": "A short, descriptive title summarizing the note",
+  "description": "A two-sentence summary of the note's content.",
+  "transcript": "The verbatim transcript.",
+  "timestamp": "ISO 8601 timestamp (will be filled by system)",
+  "timestamp_readable": "Human-readable timestamp (will be filled by system)"
+}
+
+Return ONLY the JSON object, no additional text or markdown code blocks.`;
+
 export const TRANSCRIPTION_PROMPT = `The audio binary provided contains a voice note dictated by the user. Your task is to return a lightly edited transcript of this content.
 
 ## Editing Scope

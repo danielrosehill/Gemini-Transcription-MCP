@@ -1,7 +1,9 @@
 import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 import * as fs from 'fs';
 import { TranscriptionResponse } from './types.js';
-import { TRANSCRIPTION_PROMPT } from './prompt.js';
+import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT } from './prompt.js';
+
+export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT };
 import { prepareAudioFile, cleanupTempFile, AudioFileInfo } from './audio.js';
 
 const MODEL_NAME = 'gemini-2.0-flash';
@@ -68,7 +70,7 @@ function parseJsonResponse(text: string): Partial<TranscriptionResponse> {
   }
 }
 
-export async function transcribeAudio(filePath: string): Promise<TranscriptionResponse> {
+export async function transcribeAudio(filePath: string, customPrompt?: string): Promise<TranscriptionResponse> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   let audioInfo: AudioFileInfo | null = null;
   let uploadedFileName: string | null = null;
@@ -98,12 +100,15 @@ export async function transcribeAudio(filePath: string): Promise<TranscriptionRe
     // Get the file again to ensure we have the URI
     const uploadedFile = await ai.files.get({ name: uploadedFileName });
 
+    // Use custom prompt if provided, otherwise use the default transcription prompt
+    const promptToUse = customPrompt ?? TRANSCRIPTION_PROMPT;
+
     // Generate content
     const result = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: createUserContent([
         createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
-        TRANSCRIPTION_PROMPT,
+        promptToUse,
       ]),
     });
 
