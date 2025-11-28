@@ -33,25 +33,28 @@ Provide an audio file path, and the MCP returns a JSON response with:
 
 ## Requirements
 
-- Google Gemini API key (set as `GEMINI_API_KEY` environment variable)
+- Google Gemini API key ([get one here](https://aistudio.google.com/app/apikey))
 - Node.js 18+
+- ffmpeg (for processing large audio files)
 
 ## Installation
 
+Install from npm:
+
 ```bash
-npm install
+npm install -g gemini-transcription-mcp
 ```
 
 ## Configuration
 
-Add to your Claude Code MCP configuration:
+Add to your Claude Code MCP configuration (`~/.claude/settings.json`):
 
 ```json
 {
   "mcpServers": {
     "gemini-transcription": {
-      "command": "node",
-      "args": ["path/to/gemini-transcription-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "gemini-transcription-mcp"],
       "env": {
         "GEMINI_API_KEY": "your-api-key"
       }
@@ -60,10 +63,25 @@ Add to your Claude Code MCP configuration:
 }
 ```
 
-## Status
+Replace `your-api-key` with your [Gemini API key](https://aistudio.google.com/app/apikey).
 
-🚧 Work in Progress
+### Alternative: Run from global install
+
+If you installed globally with `npm install -g`:
+
+```json
+{
+  "mcpServers": {
+    "gemini-transcription": {
+      "command": "gemini-transcription-mcp",
+      "env": {
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
 
 ## Disclaimer
 
-This MCP server is being developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.
+This MCP server was developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.

@@ -1,0 +1,10 @@
+src/
+reference/
+private/
+*.md
+!README.md
+tsconfig.json
+.env
+.env.example
+.git/
+.gitignore
