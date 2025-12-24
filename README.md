@@ -119,17 +119,42 @@ See [models.md](models.md) for detailed model information and selection guidance
 
 ## Usage
 
-Start the server:
+### Claude Code / Claude Desktop Configuration
 
-```bash
-npm run start
+Add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "gemini-transcription": {
+      "command": "npx",
+      "args": ["-y", "gemini-transcription-mcp"],
+      "env": {
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
 ```
 
-The server will start on port 3000 by default. You can change the port by setting the `PORT` environment variable.
+Or if installed globally:
 
-### Transcribe an audio file (MCP tools)
+```json
+{
+  "mcpServers": {
+    "gemini-transcription": {
+      "command": "gemini-transcription-mcp",
+      "env": {
+        "GEMINI_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
 
-Use the MCP tool by sending either a base64 payload **or** a downloadable URL (for the remote/proxy setup).
+### MCP Tools
+
+Use the MCP tools by sending either a base64 payload **or** a downloadable URL.
 
 | Tool | Description |
 |------|-------------|
@@ -197,27 +222,9 @@ The tool intelligently formats the transcribed content. Supported formats includ
 }
 ```
 
-### HTTP endpoint (legacy local mode)
+### Response Format
 
-The original Express server can still be run locally to POST audio files directly:
-
-**Endpoint**: `POST /transcribe`
-
-**Example using `curl` (edited transcript)**:
-
-```bash
-curl -X POST -F "audio=@/path/to/your/audio.mp3" http://localhost:3000/transcribe
-```
-
-**Example for raw transcription**:
-
-```bash
-curl -X POST -F "audio=@/path/to/your/audio.mp3" -F "raw=true" http://localhost:3000/transcribe
-```
-
-**Response**:
-
-The server will respond with a JSON object containing the transcription:
+All tools return a JSON object with:
 
 | Field | Description |
 |-------|-------------|
@@ -227,4 +234,10 @@ The server will respond with a JSON object containing the transcription:
 | `timestamp` | ISO 8601 timestamp |
 | `timestamp_readable` | Human-readable timestamp |
 
- 
+## License
+
+MIT
+
+## Disclaimer
+
+This server was developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.
