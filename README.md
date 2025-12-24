@@ -8,17 +8,25 @@ An MCP (Model Context Protocol) server that provides audio-to-text transcription
 
 ## Overview
 
-This MCP server enables AI assistants (like Claude) to transcribe audio files using Gemini's multimodal capabilities. Unlike conventional speech-to-text services, Gemini can process both audio and a steering prompt simultaneously, enabling transcription with intelligent post-processing in a single API call.
+This MCP server transcribes audio using Gemini's multimodal API. Unlike traditional ASR services, Gemini processes audio and a system prompt together—so transcription and post-processing happen in a single call.
 
-## Why This Server?
+Five transcription modes are available:
+- **Edited**: Removes filler words, applies verbal corrections, adds punctuation
+- **Raw**: Verbatim transcript with no cleanup
+- **Custom**: Provide your own prompt for full control
+- **Format**: Transcribe and format as a specific document type (email, to-do list, meeting notes, etc.)
+- **Large**: Compresses oversized files to Opus before transcribing
 
-- **Multimodal Advantage**: Gemini processes audio and text instructions together, allowing combined transcription and language processing in one operation
-- **Built-in Post-Processing**: The transcription prompt is pre-configured, so users simply upload an audio file and receive a cleaned, structured transcript.
-- **Four Transcription Modes**:
-    - **Edited**: Transcribes audio with intelligent cleanup (removes filler words, applies verbal corrections, adds punctuation).
-    - **Raw**: Transcribes audio verbatim, including all filler words and false starts.
-    - **Custom**: User provides their own transcription prompt for full control.
-    - **Format**: Transcribe and format as a specific document type (email, to-do list, meeting notes, etc.).
+## Suggested Uses
+
+- **Development notes**: Record voice notes describing project context, requirements, or directions, then transcribe them directly into your repository to bootstrap a project or provide context to an AI assistant.
+- **Audio data in repositories**: Transcribe interviews, YouTube videos, podcasts, or other audio assets stored in your project.
+
+### Limits
+
+Gemini's audio duration limit is currently around 2-3 hours (this changes periodically). However, there is a separate **20 MB file size limit** which is more commonly hit.
+
+**For large files**: Use `transcribe_audio_large`, which automatically compresses audio to Opus (mono, 16kHz, 24kbps). This typically reduces a 1-hour WAV from ~600MB to ~10MB while preserving speech quality.
 
 ## The Transcription Prompt
 
@@ -186,6 +194,7 @@ Use the MCP tools by sending either a base64 payload **or** a downloadable URL.
 | `transcribe_audio_raw` | Verbatim transcript with no cleanup |
 | `transcribe_audio_custom` | User provides a custom prompt for full control |
 | `transcribe_audio_format` | Transcribes and formats as a specified document type |
+| `transcribe_audio_large` | Compresses audio to Opus before transcribing (for files exceeding 20MB) |
 
 **Common Parameters** (all tools):
 
