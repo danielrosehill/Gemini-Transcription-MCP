@@ -119,9 +119,23 @@ See [models.md](models.md) for detailed model information and selection guidance
 
 ## Usage
 
-### Claude Code / Claude Desktop Configuration
+### Claude Code CLI
 
-Add to your MCP configuration:
+Add the MCP server using the Claude Code CLI:
+
+```bash
+claude mcp add gemini-transcription -e GEMINI_API_KEY=your-api-key -- npx -y gemini-transcription-mcp
+```
+
+To add it globally (user-level):
+
+```bash
+claude mcp add gemini-transcription -s user -e GEMINI_API_KEY=your-api-key -- npx -y gemini-transcription-mcp
+```
+
+### Claude Desktop Configuration
+
+Add to your MCP configuration file:
 
 ```json
 {
