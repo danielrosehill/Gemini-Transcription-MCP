@@ -1,9 +1,9 @@
 import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 import * as fs from 'fs';
 import { TranscriptionResponse } from './types.js';
-import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT } from './prompt.js';
+import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt } from './prompt.js';
 
-export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT };
+export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt };
 import {
   prepareAudioInput,
   cleanupTempFiles,
@@ -16,6 +16,7 @@ const SUPPORTED_MODELS: Record<string, string> = {
   '1': 'gemini-flash-latest',                  // Gemini Flash Latest - dynamic endpoint
   '2': 'gemini-2.5-flash-preview-05-20',       // Gemini 2.5 Flash Preview
   '3': 'gemini-2.5-flash-lite-preview-06-17',  // Gemini 2.5 Flash Lite (economic)
+  '4': 'gemini-3-flash-preview',               // Gemini 3 Flash Preview (newest)
 };
 
 const DEFAULT_MODEL = 'gemini-flash-latest';

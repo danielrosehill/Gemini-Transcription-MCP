@@ -1,20 +1,24 @@
-# Gemini Transcription Server
+# Gemini Transcription MCP
 
-A server that provides audio-to-text transcription using Google's Gemini multimodal API.
+An MCP (Model Context Protocol) server that provides audio-to-text transcription using Google's Gemini multimodal API.
+
+[![npm version](https://badge.fury.io/js/gemini-transcription-mcp.svg)](https://www.npmjs.com/package/gemini-transcription-mcp)
 
 ![Example transcript output](screenshots/1.png)
 
 ## Overview
 
-This server provides an HTTP endpoint for transcribing audio files using Gemini's multimodal capabilities. Unlike conventional speech-to-text services, Gemini can process both audio and a steering prompt simultaneously, enabling transcription with intelligent post-processing in a single API call.
+This MCP server enables AI assistants (like Claude) to transcribe audio files using Gemini's multimodal capabilities. Unlike conventional speech-to-text services, Gemini can process both audio and a steering prompt simultaneously, enabling transcription with intelligent post-processing in a single API call.
 
 ## Why This Server?
 
 - **Multimodal Advantage**: Gemini processes audio and text instructions together, allowing combined transcription and language processing in one operation
 - **Built-in Post-Processing**: The transcription prompt is pre-configured, so users simply upload an audio file and receive a cleaned, structured transcript.
-- **Two Transcription Modes**:
+- **Four Transcription Modes**:
     - **Edited**: Transcribes audio with intelligent cleanup (removes filler words, applies verbal corrections, adds punctuation).
     - **Raw**: Transcribes audio verbatim, including all filler words and false starts.
+    - **Custom**: User provides their own transcription prompt for full control.
+    - **Format**: Transcribe and format as a specific document type (email, to-do list, meeting notes, etc.).
 
 ## The Transcription Prompt
 
@@ -35,9 +39,10 @@ This results in a transcript that's easy to read while faithfully preserving you
 
 ## Features
 
-- Accepts audio file uploads (MP3, WAV, OGG, FLAC, AAC, AIFF) via an HTTP endpoint.
-- Automatic audio downsampling to optimize for Gemini's 16 Kbps processing resolution.
-- Returns structured JSON with title, description, transcript, and timestamps.
+- Supports audio formats: MP3, WAV, OGG, FLAC, AAC, AIFF, M4A
+- Automatic audio downsampling to optimize for Gemini's 16 Kbps processing resolution
+- Returns structured JSON with title, description, transcript, and timestamps
+- Multiple input methods: base64, URL, or SSH/SCP pull
 
 ## Requirements
 
@@ -46,6 +51,20 @@ This results in a transcript that's easy to read while faithfully preserving you
 - ffmpeg (for processing large audio files)
 
 ## Installation
+
+### From npm (recommended)
+
+```bash
+npm install -g gemini-transcription-mcp
+```
+
+Or run directly with npx:
+
+```bash
+npx gemini-transcription-mcp
+```
+
+### From source
 
 1.  Clone the repository:
     ```bash
@@ -86,6 +105,7 @@ By default, this MCP uses `gemini-flash-latest` (Gemini Flash Latest). You can s
 | `1` (default) | `gemini-flash-latest` | Gemini Flash Latest - dynamic endpoint |
 | `2` | `gemini-2.5-flash-preview-05-20` | Gemini 2.5 Flash Preview |
 | `3` | `gemini-2.5-flash-lite-preview-06-17` | Gemini 2.5 Flash Lite (economic) |
+| `4` | `gemini-3-flash-preview` | Gemini 3 Flash Preview (newest) |
 
 ```bash
 # Use shorthand
@@ -111,18 +131,29 @@ The server will start on port 3000 by default. You can change the port by settin
 
 Use the MCP tool by sending either a base64 payload **or** a downloadable URL (for the remote/proxy setup).
 
-**Edited transcript tool**: `transcribe_audio`  
-**Raw transcript tool**: `transcribe_audio_raw`
+| Tool | Description |
+|------|-------------|
+| `transcribe_audio` | Lightly edited transcript (removes filler words, applies corrections) |
+| `transcribe_audio_raw` | Verbatim transcript with no cleanup |
+| `transcribe_audio_custom` | User provides a custom prompt for full control |
+| `transcribe_audio_format` | Transcribes and formats as a specified document type |
 
-**Parameters**:
+**Common Parameters** (all tools):
 
 - `file_content` (optional): Base64-encoded audio content.
-- `file_url` (optional): HTTP(S) URL to fetch the audio from (use this in the “true proxy”/remote setup).
+- `file_url` (optional): HTTP(S) URL to fetch the audio from (use this in the "true proxy"/remote setup).
 - `ssh_host` + `ssh_path` (optional): Pull the audio directly over SSH/SCP when the MCP host has key-based SSH access to the client (e.g., `ssh_host: "client.local"` and `ssh_path: "/tmp/audio.wav"`). Optional `ssh_user` and `ssh_port` are supported.
 - `file_name` (optional): Helpful when using `file_url` without a filename.
 - `output_dir` (optional): Where to save a markdown copy of the transcript.
 
 At least one of `file_content`, `file_url`, or `ssh_host`+`ssh_path` must be provided.
+
+**Tool-Specific Parameters**:
+
+| Tool | Parameter | Description |
+|------|-----------|-------------|
+| `transcribe_audio_custom` | `custom_prompt` (required) | Your custom transcription instructions for Gemini |
+| `transcribe_audio_format` | `format` (required) | The desired output format (e.g., "email", "to-do list", "meeting notes") |
 
 **SSH pull example (no manual upload):**
 
@@ -139,6 +170,32 @@ At least one of `file_content`, `file_url`, or `ssh_host`+`ssh_path` must be pro
 ```
 
 This uses `scp` from the MCP host to the client. Ensure key-based SSH works from the MCP host to the client and `scp` is available on the MCP host. The file is streamed to a temp directory, size-checked, downsampled if large, then uploaded to Gemini.
+
+**Format transcription example (to-do list):**
+
+```json
+{
+  "name": "transcribe_audio_format",
+  "arguments": {
+    "file_url": "https://example.com/voice-note.mp3",
+    "format": "to-do list"
+  }
+}
+```
+
+The tool intelligently formats the transcribed content. Supported formats include: email, to-do list, meeting notes, technical document, blog post, executive summary, letter, report, outline, and any other format you describe.
+
+**Custom prompt example:**
+
+```json
+{
+  "name": "transcribe_audio_custom",
+  "arguments": {
+    "file_url": "https://example.com/interview.mp3",
+    "custom_prompt": "Transcribe this interview. Format as a Q&A dialogue with speaker labels. Return JSON with 'transcript' field."
+  }
+}
+```
 
 ### HTTP endpoint (legacy local mode)
 
@@ -170,6 +227,4 @@ The server will respond with a JSON object containing the transcription:
 | `timestamp` | ISO 8601 timestamp |
 | `timestamp_readable` | Human-readable timestamp |
 
-## Disclaimer
-
-This server was developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.
+ 

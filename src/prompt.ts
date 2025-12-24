@@ -1,3 +1,57 @@
+/**
+ * Generates a format-specific transcription prompt.
+ * The AI agent specifies the desired output format, and this constructs
+ * an appropriate prompt for Gemini to transcribe and format in one pass.
+ */
+export function generateFormatPrompt(format: string): string {
+  return `The audio binary provided contains a voice note dictated by the user. Your task is to transcribe this content and format it as: **${format}**
+
+## Instructions
+
+1. **Transcribe the audio content** - Capture all meaningful content from the audio
+2. **Apply light cleanup** - Remove filler words ("um," "uh," "like"), honor verbal corrections, add punctuation
+3. **Format the output** as a ${format} - Structure the transcribed content appropriately for this format
+
+## Format-Specific Guidance
+
+Based on the requested format "${format}", apply appropriate structural conventions:
+
+- **Email**: Include a subject line suggestion, greeting, body paragraphs, and sign-off placeholder
+- **To-do list / Task list**: Extract actionable items as a bulleted or numbered list with checkboxes
+- **Meeting notes**: Include attendees (if mentioned), date, key discussion points, action items, and decisions
+- **Technical document**: Use proper headings, sections, code formatting if applicable
+- **Blog post**: Include a compelling title, introduction, body sections with subheadings, conclusion
+- **Summary / Executive summary**: Condense to key points, main takeaways, and recommendations
+- **Letter**: Formal letter structure with date, recipient, salutation, body, closing
+- **Report**: Structured sections with findings, analysis, and conclusions
+- **Script / Dialogue**: Format with speaker labels and stage directions if applicable
+- **Outline**: Hierarchical structure with main topics and subtopics
+
+If the format doesn't match these examples, use your judgment to apply the most appropriate structure for "${format}".
+
+## Core Principles
+
+- Preserve the speaker's intended meaning and all substantive content
+- Apply formatting that makes the content most useful in the requested format
+- Do not add information not present in the audio
+- If content doesn't fit the requested format well, do your best and note any limitations
+
+## Response Format
+
+You MUST respond with valid JSON matching this exact structure:
+
+{
+  "title": "A short, descriptive title appropriate for the ${format}",
+  "description": "A two-sentence summary of the content.",
+  "transcript": "The transcribed and formatted content as a ${format}.",
+  "format_applied": "${format}",
+  "timestamp": "ISO 8601 timestamp (will be filled by system)",
+  "timestamp_readable": "Human-readable timestamp (will be filled by system)"
+}
+
+Return ONLY the JSON object, no additional text or markdown code blocks.`;
+}
+
 export const RAW_TRANSCRIPTION_PROMPT = `The audio binary provided contains a voice note dictated by the user. Your task is to return a verbatim transcript of this content.
 
 ## Instructions

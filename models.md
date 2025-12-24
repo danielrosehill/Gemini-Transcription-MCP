@@ -15,6 +15,7 @@ This is the default model used when `GEMINI_MODEL` is not set. It's a dynamic en
 | `1` | `gemini-flash-latest` | **Gemini Flash Latest** - Dynamic endpoint that tracks the latest Flash model. Recommended for most users. |
 | `2` | `gemini-2.5-flash-preview-05-20` | **Gemini 2.5 Flash Preview** - Preview version of Gemini 2.5 Flash with enhanced capabilities. |
 | `3` | `gemini-2.5-flash-lite-preview-06-17` | **Gemini 2.5 Flash Lite** - Economic version optimized for cost-efficiency. Good for high-volume transcription. |
+| `4` | `gemini-3-flash-preview` | **Gemini 3 Flash Preview** - The newest preview model with cutting-edge capabilities. |
 
 ## Configuration
 
@@ -31,6 +32,9 @@ export GEMINI_MODEL=2
 
 # Use Gemini 2.5 Flash Lite (economic)
 export GEMINI_MODEL=3
+
+# Use Gemini 3 Flash Preview (newest)
+export GEMINI_MODEL=4
 ```
 
 ### Using full model names
@@ -48,8 +52,9 @@ This also allows using any Gemini model not in the shorthand list, such as futur
 | Use Case | Recommended Model |
 |----------|-------------------|
 | General transcription | `1` (gemini-flash-latest) |
-| Latest features/capabilities | `2` (gemini-2.5-flash-preview) |
+| Stable preview features | `2` (gemini-2.5-flash-preview) |
 | High volume / cost-sensitive | `3` (gemini-2.5-flash-lite) |
+| Cutting-edge / experimental | `4` (gemini-3-flash-preview) |
 
 ## Notes
 

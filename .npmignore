@@ -1,0 +1,21 @@
+# Source files (dist is published instead)
+src/
+
+# Development files
+.git/
+.gitignore
+.env
+*.log
+
+# Documentation (keep README for npm)
+reference/
+private/
+screenshots/
+models.md
+
+# Build artifacts
+*.tgz
+tsconfig.json
+
+# OS files
+.DS_Store
