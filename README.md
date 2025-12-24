@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that provides audio-to-text transcription
 
 [![npm version](https://badge.fury.io/js/gemini-transcription-mcp.svg)](https://www.npmjs.com/package/gemini-transcription-mcp)
 
-![Example transcript output](screenshots/1.png)
+![Example: Claude Code transcribing audio files](screenshots/claude-code-parallel-transcription.png)
 
 ## Overview
 
@@ -132,6 +132,16 @@ To add it globally (user-level):
 ```bash
 claude mcp add gemini-transcription -s user -e GEMINI_API_KEY=your-api-key -- npx -y gemini-transcription-mcp
 ```
+
+#### Example: Parallel Transcription in Claude Code
+
+Claude Code can transcribe multiple audio files simultaneously using different transcription modes:
+
+![Audio files to transcribe](screenshots/claude-code-audio-files.png)
+
+![Claude Code running parallel transcription](screenshots/claude-code-parallel-transcription.png)
+
+![Transcription output with generated files](screenshots/claude-code-transcription-output.png)
 
 ### Claude Desktop Configuration
 
