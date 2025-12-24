@@ -23,7 +23,7 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.3.0',
+    version: '0.3.1',
   },
   {
     capabilities: {
