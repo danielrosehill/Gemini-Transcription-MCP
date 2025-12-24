@@ -271,6 +271,4 @@ All tools return a JSON object with:
 
 MIT
 
-## Disclaimer
-
-This server was developed using Claude Code (AI-assisted development). The human author provides direction, requirements, and testing, while the code generation is performed by the AI. Use at your own discretion and review the code before deploying in production environments.
+ 
