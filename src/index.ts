@@ -43,9 +43,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            file_path: {
+            file_content: {
               type: 'string',
-              description: 'Absolute path to the audio file to transcribe',
+              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+            },
+            file_url: {
+              type: 'string',
+              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+            },
+            ssh_host: {
+              type: 'string',
+              description:
+                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+            },
+            ssh_path: {
+              type: 'string',
+              description: 'Remote file path on the SSH host. Provide with ssh_host.',
+            },
+            ssh_user: {
+              type: 'string',
+              description: 'Optional SSH username when pulling the file.',
+            },
+            ssh_port: {
+              type: 'number',
+              description: 'Optional SSH port when pulling the file.',
+            },
+            file_name: {
+              type: 'string',
+              description:
+                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
             },
             output_dir: {
               type: 'string',
@@ -53,7 +79,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
             },
           },
-          required: ['file_path'],
+          required: [],
         },
       },
       {
@@ -63,9 +89,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            file_path: {
+            file_content: {
               type: 'string',
-              description: 'Absolute path to the audio file to transcribe',
+              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+            },
+            file_url: {
+              type: 'string',
+              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+            },
+            ssh_host: {
+              type: 'string',
+              description:
+                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+            },
+            ssh_path: {
+              type: 'string',
+              description: 'Remote file path on the SSH host. Provide with ssh_host.',
+            },
+            ssh_user: {
+              type: 'string',
+              description: 'Optional SSH username when pulling the file.',
+            },
+            ssh_port: {
+              type: 'number',
+              description: 'Optional SSH port when pulling the file.',
+            },
+            file_name: {
+              type: 'string',
+              description:
+                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
             },
             output_dir: {
               type: 'string',
@@ -73,7 +125,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
             },
           },
-          required: ['file_path'],
+          required: [],
         },
       },
     ],
@@ -96,16 +148,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  const typedArgs = args as { file_path?: string; output_dir?: string };
-  const filePath = typedArgs?.file_path;
+  const typedArgs = args as {
+    file_content?: string;
+    file_url?: string;
+    file_name?: string;
+    output_dir?: string;
+    ssh_host?: string;
+    ssh_path?: string;
+    ssh_user?: string;
+    ssh_port?: number;
+  };
+  const fileContent = typedArgs?.file_content;
+  const fileUrl = typedArgs?.file_url;
+  const fileName = typedArgs?.file_name;
   const outputDir = typedArgs?.output_dir;
+  const sshHost = typedArgs?.ssh_host;
+  const sshPath = typedArgs?.ssh_path;
+  const sshUser = typedArgs?.ssh_user;
+  const sshPort = typedArgs?.ssh_port;
 
-  if (!filePath) {
+  if (!fileContent && !fileUrl && !sshHost) {
     return {
       content: [
         {
           type: 'text',
-          text: 'Missing required parameter: file_path',
+          text: 'Missing required parameters: provide file_content (base64), file_url, or ssh_host + ssh_path',
         },
       ],
       isError: true,
@@ -115,7 +182,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     // Use raw prompt for transcribe_audio_raw, default prompt for transcribe_audio
     const customPrompt = name === 'transcribe_audio_raw' ? RAW_TRANSCRIPTION_PROMPT : undefined;
-    const result = await transcribeAudio(filePath, customPrompt);
+    const result = await transcribeAudio({
+      fileContent,
+      fileUrl,
+      fileName,
+      sshHost,
+      sshPath,
+      sshUser,
+      sshPort,
+      customPrompt,
+    });
 
     // If output_dir is provided, save the transcript as a markdown file
     let savedFilePath: string | undefined;

@@ -4,9 +4,34 @@ import { TranscriptionResponse } from './types.js';
 import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT } from './prompt.js';
 
 export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT };
-import { prepareAudioFile, cleanupTempFile, AudioFileInfo } from './audio.js';
+import {
+  prepareAudioInput,
+  cleanupTempFiles,
+  PreparedAudioInfo,
+  PrepareAudioParams,
+} from './audio.js';
 
-const MODEL_NAME = 'gemini-2.0-flash';
+// Supported Gemini models for transcription
+const SUPPORTED_MODELS: Record<string, string> = {
+  '1': 'gemini-flash-latest',                  // Gemini Flash Latest - dynamic endpoint
+  '2': 'gemini-2.5-flash-preview-05-20',       // Gemini 2.5 Flash Preview
+  '3': 'gemini-2.5-flash-lite-preview-06-17',  // Gemini 2.5 Flash Lite (economic)
+};
+
+const DEFAULT_MODEL = 'gemini-flash-latest';
+
+function getModelName(): string {
+  const modelEnv = process.env.GEMINI_MODEL;
+  if (!modelEnv) {
+    return DEFAULT_MODEL;
+  }
+  // Check if it's a shorthand number (1, 2, 3)
+  if (SUPPORTED_MODELS[modelEnv]) {
+    return SUPPORTED_MODELS[modelEnv];
+  }
+  // Otherwise use the value directly (allows custom model names)
+  return modelEnv;
+}
 
 function getApiKey(): string {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -70,14 +95,32 @@ function parseJsonResponse(text: string): Partial<TranscriptionResponse> {
   }
 }
 
-export async function transcribeAudio(filePath: string, customPrompt?: string): Promise<TranscriptionResponse> {
+export interface TranscribeInput extends PrepareAudioParams {
+  customPrompt?: string;
+}
+
+export async function transcribeAudio(
+  input: TranscribeInput
+): Promise<TranscriptionResponse> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  let audioInfo: AudioFileInfo | null = null;
+  let audioInfo: PreparedAudioInfo | null = null;
   let uploadedFileName: string | null = null;
 
   try {
-    // Prepare audio file (validate and downsample if needed)
-    audioInfo = await prepareAudioFile(filePath);
+    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
+      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
+    }
+
+    // Prepare audio file from base64 content or remote URL
+    audioInfo = await prepareAudioInput({
+      fileContent: input.fileContent,
+      fileUrl: input.fileUrl,
+      fileName: input.fileName,
+      sshHost: input.sshHost,
+      sshPath: input.sshPath,
+      sshUser: input.sshUser,
+      sshPort: input.sshPort,
+    });
 
     // Read file and create blob for upload
     const fileBuffer = fs.readFileSync(audioInfo.processedPath);
@@ -101,11 +144,11 @@ export async function transcribeAudio(filePath: string, customPrompt?: string): 
     const uploadedFile = await ai.files.get({ name: uploadedFileName });
 
     // Use custom prompt if provided, otherwise use the default transcription prompt
-    const promptToUse = customPrompt ?? TRANSCRIPTION_PROMPT;
+    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
 
     // Generate content
     const result = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: createUserContent([
         createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
         promptToUse,
@@ -129,9 +172,9 @@ export async function transcribeAudio(filePath: string, customPrompt?: string): 
       timestamp_readable: timestamps.readable,
     };
   } finally {
-    // Cleanup temp file
+    // Cleanup temp files
     if (audioInfo) {
-      cleanupTempFile(audioInfo);
+      cleanupTempFiles(audioInfo);
     }
     // Delete uploaded file from Gemini
     if (uploadedFileName) {
