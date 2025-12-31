@@ -1,289 +1,56 @@
 # Gemini Transcription MCP
 
-An MCP (Model Context Protocol) server that provides audio-to-text transcription using Google's Gemini multimodal API.
+An MCP server for audio-to-text transcription using Google's Gemini multimodal API.
 
 [![npm version](https://badge.fury.io/js/gemini-transcription-mcp.svg)](https://www.npmjs.com/package/gemini-transcription-mcp)
 
-![Example: Claude Code transcribing audio files](screenshots/claude-code-parallel-transcription.png)
-
-## Overview
-
-This MCP server transcribes audio using Gemini's multimodal API. Unlike traditional ASR services, Gemini processes audio and a system prompt together—so transcription and post-processing happen in a single call.
-
-Five transcription modes are available:
-- **Edited**: Removes filler words, applies verbal corrections, adds punctuation
-- **Raw**: Verbatim transcript with no cleanup
-- **Custom**: Provide your own prompt for full control
-- **Format**: Transcribe and format as a specific document type (email, to-do list, meeting notes, etc.)
-- **Large**: Compresses oversized files to Opus before transcribing
-
-## Suggested Uses
-
-- **Development notes**: Record voice notes describing project context, requirements, or directions, then transcribe them directly into your repository to bootstrap a project or provide context to an AI assistant.
-- **Audio data in repositories**: Transcribe interviews, YouTube videos, podcasts, or other audio assets stored in your project.
-
-### Limits
-
-Gemini's audio duration limit is currently around 2-3 hours (this changes periodically). However, there is a separate **20 MB file size limit** which is more commonly hit.
-
-**For large files**: Use `transcribe_audio_large`, which automatically compresses audio to Opus (mono, 16kHz, 24kbps). This typically reduces a 1-hour WAV from ~600MB to ~10MB while preserving speech quality.
-
-## The Transcription Prompt
-
-The key to this server's usefulness is the system prompt sent to Gemini. The edited transcription uses a prompt that instructs Gemini to:
-
-1. **Omit filler words** - Remove "um," "uh," "like," etc.
-2. **Honor inline corrections** - If you say "I need to buy kiwis—wait, I meant bananas," the output will be "I need to buy bananas"
-3. **Add punctuation** - Ensure logical sentence structure
-4. **Add paragraph breaks** - Improve readability
-5. **Generate subheadings** - Divide text into logical sections
-
-The prompt explicitly tells Gemini NOT to:
-- Make stylistic improvements or reword for "better" prose
-- Add information not present in the original audio
-- Change the user's intended meaning
-
-This results in a transcript that's easy to read while faithfully preserving your original content.
-
-## Features
-
-- **Gemini-native formats** (passed through directly): WAV, MP3, AIFF, AAC, OGG, FLAC
-  - [Source: Gemini API docs](https://ai.google.dev/gemini-api/docs/audio) (verified 2025-12-31)
-- **Extended formats** (automatically converted to OGG/Opus): Opus, M4A, WebM, WMA, AMR, 3GP, CAF, and more
-- Automatic conversion of unsupported formats to OGG/Opus (the most space-efficient format for speech)
-- Automatic compression of large files to stay within Gemini's size limits
-- Returns structured JSON with title, description, transcript, and timestamps
-- Multiple input methods: base64, URL, or SSH/SCP pull
-
-## Requirements
-
-- Google Gemini API key ([get one here](https://aistudio.google.com/app/apikey))
-- Node.js 18+
-- ffmpeg (for processing large audio files)
-
-## Installation
-
-### From npm (recommended)
+## Quick Start
 
 ```bash
-npm install -g gemini-transcription-mcp
+# Add to Claude Code (user-level)
+claude mcp add gemini-transcription -s user -e GEMINI_API_KEY=your-key -- npx -y gemini-transcription-mcp
 ```
 
-Or run directly with npx:
-
-```bash
-npx gemini-transcription-mcp
-```
-
-### From source
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/danielrosehill/Gemini-Transcription-MCP.git
-    cd Gemini-Transcription-MCP
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Build the project:
-    ```bash
-    npm run build
-    ```
-
-## Configuration
-
-### API Key
-
-Set the `GEMINI_API_KEY` environment variable to your Google Gemini API key. You can do this by creating a `.env` file in the root of the project:
-
-```
-GEMINI_API_KEY=your-api-key
-```
-
-Or by setting it in your shell:
-
-```bash
-export GEMINI_API_KEY=your-api-key
-```
-
-### Model Selection
-
-By default, this MCP uses `gemini-flash-latest` (Gemini Flash Latest). You can select a different model using the `GEMINI_MODEL` environment variable:
-
-| Shorthand | Model | Description |
-|-----------|-------|-------------|
-| `1` (default) | `gemini-flash-latest` | Gemini Flash Latest - dynamic endpoint |
-| `2` | `gemini-2.5-flash-preview-05-20` | Gemini 2.5 Flash Preview |
-| `3` | `gemini-2.5-flash-lite-preview-06-17` | Gemini 2.5 Flash Lite (economic) |
-| `4` | `gemini-3-flash-preview` | Gemini 3 Flash Preview (newest) |
-
-```bash
-# Use shorthand
-export GEMINI_MODEL=2
-
-# Or use full model name
-export GEMINI_MODEL=gemini-2.5-flash-preview-05-20
-```
-
-See [models.md](models.md) for detailed model information and selection guidance.
-
-### Auto-Save Transcripts
-
-By default, all transcripts are automatically saved to `./transcripts/` (relative to the current working directory). This means when you run Claude Code from your repository, transcripts are saved to `your-repo/transcripts/`.
-
-To customize the output directory:
-
-```bash
-export TRANSCRIPT_OUTPUT_DIR=/path/to/your/transcripts
-```
-
-To disable auto-save (transcripts returned but not saved to disk), set the env var to an empty string or use `output_dir: null` in individual tool calls.
-
-## Usage
-
-### Claude Code CLI
-
-Add the MCP server using the Claude Code CLI:
-
-```bash
-claude mcp add gemini-transcription -e GEMINI_API_KEY=your-api-key -- npx -y gemini-transcription-mcp
-```
-
-To add it globally (user-level):
-
-```bash
-claude mcp add gemini-transcription -s user -e GEMINI_API_KEY=your-api-key -- npx -y gemini-transcription-mcp
-```
-
-#### Example: Parallel Transcription in Claude Code
-
-Claude Code can transcribe multiple audio files simultaneously using different transcription modes:
-
-![Audio files to transcribe](screenshots/claude-code-audio-files.png)
-
-![Claude Code running parallel transcription](screenshots/claude-code-parallel-transcription.png)
-
-![Transcription output with generated files](screenshots/claude-code-transcription-output.png)
-
-### Claude Desktop Configuration
-
-Add to your MCP configuration file:
-
-```json
-{
-  "mcpServers": {
-    "gemini-transcription": {
-      "command": "npx",
-      "args": ["-y", "gemini-transcription-mcp"],
-      "env": {
-        "GEMINI_API_KEY": "your-api-key"
-      }
-    }
-  }
-}
-```
-
-Or if installed globally:
-
-```json
-{
-  "mcpServers": {
-    "gemini-transcription": {
-      "command": "gemini-transcription-mcp",
-      "env": {
-        "GEMINI_API_KEY": "your-api-key"
-      }
-    }
-  }
-}
-```
-
-### MCP Tools
-
-Use the MCP tools by sending either a base64 payload **or** a downloadable URL.
+## Tools
 
 | Tool | Description |
 |------|-------------|
 | `transcribe_audio` | Lightly edited transcript (removes filler words, applies corrections) |
 | `transcribe_audio_raw` | Verbatim transcript with no cleanup |
-| `transcribe_audio_custom` | User provides a custom prompt for full control |
-| `transcribe_audio_format` | Transcribes and formats as a specified document type |
-| `transcribe_audio_large` | Compresses audio to Opus before transcribing (for files exceeding 20MB) |
+| `transcribe_audio_vad` | VAD preprocessing to strip silence before transcription |
+| `transcribe_audio_format` | Transcribe and format as a document type (email, to-do list, etc.) |
+| `transcribe_audio_large` | Compresses oversized files to Opus before transcribing |
+| `transcribe_audio_custom` | Full control with your own prompt |
+| `transcribe_audio_devspec` | Format as a development specification for AI coding agents |
 
-**Common Parameters** (all tools):
+## Input Methods
 
-- `file_content` (optional): Base64-encoded audio content.
-- `file_url` (optional): HTTP(S) URL to fetch the audio from (use this in the "true proxy"/remote setup).
-- `ssh_host` + `ssh_path` (optional): Pull the audio directly over SSH/SCP when the MCP host has key-based SSH access to the client (e.g., `ssh_host: "client.local"` and `ssh_path: "/tmp/audio.wav"`). Optional `ssh_user` and `ssh_port` are supported.
-- `file_name` (optional): Helpful when using `file_url` without a filename.
-- `output_dir` (optional): Where to save a markdown copy of the transcript.
+All tools accept audio via:
+- `file_content`: Base64-encoded audio
+- `file_url`: HTTP(S) URL to fetch
+- `ssh_host` + `ssh_path`: Pull via SCP
 
-At least one of `file_content`, `file_url`, or `ssh_host`+`ssh_path` must be provided.
+## Supported Formats
 
-**Tool-Specific Parameters**:
+- **Native**: MP3, WAV, OGG, FLAC, AAC, AIFF
+- **Auto-converted**: Opus, M4A, WebM, WMA, and others (converted to OGG/Opus)
 
-| Tool | Parameter | Description |
-|------|-----------|-------------|
-| `transcribe_audio_custom` | `custom_prompt` (required) | Your custom transcription instructions for Gemini |
-| `transcribe_audio_format` | `format` (required) | The desired output format (e.g., "email", "to-do list", "meeting notes") |
+> **Note**: When manually converting audio, prefer **MP3** over WAV. MP3 offers good compression with broad compatibility, while WAV files are unnecessarily large.
 
-**SSH pull example (no manual upload):**
+## Configuration
 
-```json
-{
-  "name": "transcribe_audio",
-  "arguments": {
-    "ssh_host": "client.example.com",
-    "ssh_path": "/tmp/audio.wav",
-    "ssh_user": "myuser",        // optional
-    "ssh_port": 2222             // optional
-  }
-}
-```
+| Environment Variable | Description |
+|---------------------|-------------|
+| `GEMINI_API_KEY` | Required. Your Gemini API key |
+| `GEMINI_MODEL` | Optional. Model to use (default: `gemini-flash-latest`) |
+| `TRANSCRIPT_OUTPUT_DIR` | Optional. Auto-save location (default: `./transcripts`) |
 
-This uses `scp` from the MCP host to the client. Ensure key-based SSH works from the MCP host to the client and `scp` is available on the MCP host. The file is streamed to a temp directory, size-checked, downsampled if large, then uploaded to Gemini.
+## Requirements
 
-**Format transcription example (to-do list):**
-
-```json
-{
-  "name": "transcribe_audio_format",
-  "arguments": {
-    "file_url": "https://example.com/voice-note.mp3",
-    "format": "to-do list"
-  }
-}
-```
-
-The tool intelligently formats the transcribed content. Supported formats include: email, to-do list, meeting notes, technical document, blog post, executive summary, letter, report, outline, and any other format you describe.
-
-**Custom prompt example:**
-
-```json
-{
-  "name": "transcribe_audio_custom",
-  "arguments": {
-    "file_url": "https://example.com/interview.mp3",
-    "custom_prompt": "Transcribe this interview. Format as a Q&A dialogue with speaker labels. Return JSON with 'transcript' field."
-  }
-}
-```
-
-### Response Format
-
-All tools return a JSON object with:
-
-| Field | Description |
-|-------|-------------|
-| `title` | Short descriptive title for the note |
-| `description` | Two-sentence summary |
-| `transcript` | Transcript in Markdown format |
-| `timestamp` | ISO 8601 timestamp |
-| `timestamp_readable` | Human-readable timestamp |
+- Node.js 18+
+- ffmpeg (for format conversion and VAD preprocessing)
+- [Gemini API key](https://aistudio.google.com/app/apikey)
 
 ## License
 
 MIT
-
- 
