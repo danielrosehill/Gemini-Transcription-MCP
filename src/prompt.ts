@@ -52,14 +52,27 @@ You MUST respond with valid JSON matching this exact structure:
 Return ONLY the JSON object, no additional text or markdown code blocks.`;
 }
 
-export const RAW_TRANSCRIPTION_PROMPT = `The audio binary provided contains a voice note dictated by the user. Your task is to return a verbatim transcript of this content.
+export const RAW_TRANSCRIPTION_PROMPT = `The audio binary provided contains a voice note dictated by the user. Your task is to return a verbatim transcript with minimal but essential cleanup.
 
 ## Instructions
 
-- Transcribe exactly what is spoken, including filler words ("um," "uh," "like," etc.)
-- Include false starts, corrections, and repetitions as spoken
-- Add basic punctuation only where clearly indicated by pauses
-- Do not edit, clean up, or restructure the content
+### Preserve (Verbatim)
+- Keep filler words ("um," "uh," "like," "you know," etc.)
+- Keep false starts and self-corrections as spoken
+- Keep repetitions and restarts
+- Maintain the speaker's natural speech patterns
+
+### Essential Cleanup (Apply These)
+- **Spelled-out words**: Convert letter-by-letter spelling to the intended word. If the user says "B-A-N-A-N-A-S," transcribe as "bananas." If they say "capital D-A-N-I-E-L," transcribe as "Daniel."
+- **Incomplete sentences**: When the speaker trails off mid-sentence without completing a thought, end with an ellipsis (...) and move to the next complete thought. Do not fabricate endings.
+- **Verbal deletions**: Honor explicit deletion commands. If the user says "no wait, delete that" or "scratch that" or "never mind that last part," remove the preceding phrase or sentence they're referring to.
+- **Basic punctuation**: Add periods, commas, and question marks where clearly indicated by intonation and pauses.
+
+### Do NOT
+- Remove filler words or hesitations
+- Restructure or reorder content
+- Improve prose or wording
+- Add information not present in the audio
 
 ## Response Format
 
@@ -68,7 +81,82 @@ You MUST respond with valid JSON matching this exact structure:
 {
   "title": "A short, descriptive title summarizing the note",
   "description": "A two-sentence summary of the note's content.",
-  "transcript": "The verbatim transcript.",
+  "transcript": "The verbatim transcript with essential cleanup applied.",
+  "timestamp": "ISO 8601 timestamp (will be filled by system)",
+  "timestamp_readable": "Human-readable timestamp (will be filled by system)"
+}
+
+Return ONLY the JSON object, no additional text or markdown code blocks.`;
+
+export const DEVSPEC_PROMPT = `The audio binary provided contains a voice note where the user describes a software project, feature, or technical idea. Your task is to transcribe this content and structure it as a **Development Specification** suitable for an AI coding agent to begin implementation.
+
+## Instructions
+
+1. **Transcribe the audio content** - Capture all technical details, requirements, and context
+2. **Apply standard cleanup** - Remove filler words, honor verbal corrections, add punctuation
+3. **Structure as a development spec** - Organize the content into the sections defined below
+
+## Output Structure
+
+Transform the transcribed content into these sections (omit sections if no relevant content was provided):
+
+### Project Overview
+A brief summary of what is being built and its purpose.
+
+### Requirements
+#### Functional Requirements
+- Bulleted list of what the system must do
+- Each requirement should be specific and actionable
+
+#### Non-Functional Requirements
+- Performance, security, scalability, accessibility requirements if mentioned
+
+### Technical Constraints
+- Required technologies, frameworks, languages, or platforms
+- Integration requirements with existing systems
+- Environment constraints (OS, deployment target, etc.)
+
+### Architecture Notes
+- High-level design decisions mentioned by the user
+- Component structure if described
+- Data flow or state management approach
+
+### User Stories / Use Cases
+If the user described specific workflows or user interactions, format them as:
+- "As a [user type], I want to [action] so that [benefit]"
+
+### API / Interface Definitions
+If endpoints, function signatures, or interfaces were described, document them with:
+- Endpoint/function name
+- Parameters
+- Expected behavior
+- Return values
+
+### Success Criteria
+How will we know this is complete? What defines "done"?
+
+### Open Questions
+Any ambiguities, missing details, or decisions that need clarification before implementation.
+
+### Implementation Notes
+Any specific guidance the user provided about how to build this.
+
+## Formatting Guidelines
+
+- Use Markdown formatting with clear headers
+- Be specific and actionable - an AI agent should be able to start coding from this spec
+- Preserve technical terminology exactly as the user stated it
+- If the user mentioned specific file paths, variable names, or code patterns, include them verbatim
+- Flag any contradictions or unclear requirements in the "Open Questions" section
+
+## Response Format
+
+You MUST respond with valid JSON matching this exact structure:
+
+{
+  "title": "Project/Feature Name - Development Spec",
+  "description": "A two-sentence summary of the project being specified.",
+  "transcript": "The full development specification in Markdown format.",
   "timestamp": "ISO 8601 timestamp (will be filled by system)",
   "timestamp_readable": "Human-readable timestamp (will be filled by system)"
 }

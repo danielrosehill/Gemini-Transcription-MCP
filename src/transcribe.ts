@@ -1,9 +1,9 @@
 import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 import * as fs from 'fs';
 import { TranscriptionResponse } from './types.js';
-import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt } from './prompt.js';
+import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './prompt.js';
 
-export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt };
+export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt };
 import {
   prepareAudioInput,
   prepareAudioInputCompressed,

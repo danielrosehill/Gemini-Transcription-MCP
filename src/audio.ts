@@ -6,6 +6,7 @@ import { pipeline } from 'stream/promises';
 import {
   SUPPORTED_FORMATS,
   MIME_TO_EXT,
+  GEMINI_NATIVE_MIMES,
   MAX_FILE_SIZE_BYTES,
   DOWNSAMPLE_THRESHOLD_BYTES,
 } from './types.js';
@@ -27,17 +28,43 @@ export interface PrepareAudioParams {
   sshPort?: number;
 }
 
+/**
+ * Determine the detected MIME type from file name or content-type header.
+ * This returns what we think the file IS, not necessarily what Gemini accepts.
+ */
 export function getMimeTypeFromNameOrType(fileName?: string, contentType?: string | null): string {
-  if (contentType && MIME_TO_EXT[contentType]) {
-    return contentType;
+  // Normalize common content-type variations
+  const mimeNormalization: Record<string, string> = {
+    'audio/wave': 'audio/wav',
+    'audio/x-wav': 'audio/wav',
+    'audio/x-flac': 'audio/flac',
+    'audio/x-aiff': 'audio/aiff',
+    'audio/x-m4a': 'audio/mp4',
+  };
+
+  if (contentType) {
+    const normalized = mimeNormalization[contentType] || contentType;
+    if (MIME_TO_EXT[normalized] || MIME_TO_EXT[contentType]) {
+      return normalized;
+    }
   }
+
   if (fileName) {
     const ext = path.extname(fileName).toLowerCase();
     if (SUPPORTED_FORMATS[ext]) {
       return SUPPORTED_FORMATS[ext];
     }
   }
-  return 'audio/mpeg';
+
+  // Default - will trigger conversion
+  return 'audio/unknown';
+}
+
+/**
+ * Check if a MIME type is natively supported by Gemini API.
+ */
+export function isGeminiNativeFormat(mimeType: string): boolean {
+  return GEMINI_NATIVE_MIMES.has(mimeType);
 }
 
 export async function prepareAudioInput(params: PrepareAudioParams): Promise<PreparedAudioInfo> {
@@ -66,27 +93,40 @@ export async function prepareAudioFromContent(
   fs.writeFileSync(tempPath, buffer);
 
   const stats = fs.statSync(tempPath);
-  const mimeType = getMimeTypeFromNameOrType(fileName, null);
+  const detectedMime = getMimeTypeFromNameOrType(fileName, null);
 
   if (stats.size > MAX_FILE_SIZE_BYTES) {
     fs.unlinkSync(tempPath);
     throw new Error(`File too large (${Math.round(stats.size / 1024 / 1024)}MB). Maximum size is 100MB.`);
   }
 
-  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+  // If format is not natively supported by Gemini, convert to OGG/Opus
+  if (!isGeminiNativeFormat(detectedMime)) {
+    const processedPath = await convertToOggOpus(tempPath);
     return {
-      processedPath: tempPath,
-      mimeType,
-      needsCleanup: true, // The temp file always needs cleanup
+      processedPath,
+      mimeType: 'audio/ogg',
+      needsCleanup: true,
       originalPath: tempPath,
     };
   }
 
-  const processedPath = await downsampleAudio(tempPath);
+  // Native format - check if downsampling needed for size
+  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+    return {
+      processedPath: tempPath,
+      mimeType: detectedMime,
+      needsCleanup: true,
+      originalPath: tempPath,
+    };
+  }
+
+  // Large native file - downsample to OGG/Opus (most space efficient)
+  const processedPath = await convertToOggOpus(tempPath);
   return {
     processedPath,
-    mimeType: 'audio/mp3',
-    needsCleanup: true, // Both original and downsampled files need cleanup
+    mimeType: 'audio/ogg',
+    needsCleanup: true,
     originalPath: tempPath,
   };
 }
@@ -133,21 +173,34 @@ export async function prepareAudioFromSsh(params: PrepareAudioParams): Promise<P
     );
   }
 
-  const mimeType = getMimeTypeFromNameOrType(params.fileName, null);
+  const detectedMime = getMimeTypeFromNameOrType(params.fileName || resolvedFileName, null);
 
-  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+  // If format is not natively supported by Gemini, convert to OGG/Opus
+  if (!isGeminiNativeFormat(detectedMime)) {
+    const processedPath = await convertToOggOpus(tempPath);
     return {
-      processedPath: tempPath,
-      mimeType,
+      processedPath,
+      mimeType: 'audio/ogg',
       needsCleanup: true,
       originalPath: tempPath,
     };
   }
 
-  const processedPath = await downsampleAudio(tempPath);
+  // Native format - check if downsampling needed for size
+  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+    return {
+      processedPath: tempPath,
+      mimeType: detectedMime,
+      needsCleanup: true,
+      originalPath: tempPath,
+    };
+  }
+
+  // Large native file - convert to OGG/Opus
+  const processedPath = await convertToOggOpus(tempPath);
   return {
     processedPath,
-    mimeType: 'audio/mp3',
+    mimeType: 'audio/ogg',
     needsCleanup: true,
     originalPath: tempPath,
   };
@@ -160,11 +213,11 @@ export async function prepareAudioFromUrl(fileUrl: string, fileName?: string): P
   }
 
   const contentType = response.headers.get('content-type');
-  const mimeType = getMimeTypeFromNameOrType(fileName, contentType);
   const resolvedFileName =
     fileName ||
     path.basename(new URL(fileUrl).pathname || '') ||
     `downloaded_${Date.now()}.audio`;
+  const detectedMime = getMimeTypeFromNameOrType(resolvedFileName, contentType);
   const tempDir = os.tmpdir();
   const tempPath = path.join(tempDir, `gemini_remote_${Date.now()}_${resolvedFileName}`);
 
@@ -183,73 +236,58 @@ export async function prepareAudioFromUrl(fileUrl: string, fileName?: string): P
     );
   }
 
-  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+  // If format is not natively supported by Gemini, convert to OGG/Opus
+  if (!isGeminiNativeFormat(detectedMime)) {
+    const processedPath = await convertToOggOpus(tempPath);
     return {
-      processedPath: tempPath,
-      mimeType,
+      processedPath,
+      mimeType: 'audio/ogg',
       needsCleanup: true,
       originalPath: tempPath,
     };
   }
 
-  const processedPath = await downsampleAudio(tempPath);
+  // Native format - check if downsampling needed for size
+  if (stats.size <= DOWNSAMPLE_THRESHOLD_BYTES) {
+    return {
+      processedPath: tempPath,
+      mimeType: detectedMime,
+      needsCleanup: true,
+      originalPath: tempPath,
+    };
+  }
+
+  // Large native file - convert to OGG/Opus
+  const processedPath = await convertToOggOpus(tempPath);
   return {
     processedPath,
-    mimeType: 'audio/mp3',
+    mimeType: 'audio/ogg',
     needsCleanup: true,
     originalPath: tempPath,
   };
 }
 
-async function downsampleAudio(inputPath: string): Promise<string> {
-  const tempDir = os.tmpdir();
-  const outputPath = path.join(tempDir, `gemini_transcribe_${Date.now()}.mp3`);
-
-  return new Promise((resolve, reject) => {
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', inputPath,
-      '-ac', '1',
-      '-ar', '16000',
-      '-b:a', '32k',
-      '-y',
-      outputPath,
-    ]);
-
-    let stderr = '';
-    ffmpeg.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    ffmpeg.on('close', (code) => {
-      if (code === 0) {
-        resolve(outputPath);
-      } else {
-        reject(new Error(`ffmpeg failed with code ${code}: ${stderr}`));
-      }
-    });
-
-    ffmpeg.on('error', (err) => {
-      reject(new Error(`Failed to run ffmpeg. Is it installed? Error: ${err.message}`));
-    });
-  });
-}
-
 /**
- * Aggressively compress audio to Opus format for large files.
- * Optimized for speech: mono, 16kHz, 24kbps Opus.
+ * Convert any audio format to OGG/Opus - the most space-efficient format for speech.
+ * Optimized for transcription: mono, 16kHz, 24kbps Opus.
  * This typically reduces a 1-hour WAV from ~600MB to ~10MB.
+ *
+ * Used for:
+ * 1. Converting non-Gemini-native formats (opus, webm, m4a, etc.) to audio/ogg
+ * 2. Compressing large native files to reduce upload size
  */
-export async function compressAudioToOpus(inputPath: string): Promise<string> {
+async function convertToOggOpus(inputPath: string): Promise<string> {
   const tempDir = os.tmpdir();
-  const outputPath = path.join(tempDir, `gemini_compressed_${Date.now()}.opus`);
+  // Use .ogg extension - Gemini accepts audio/ogg which can contain Opus codec
+  const outputPath = path.join(tempDir, `gemini_converted_${Date.now()}.ogg`);
 
   return new Promise((resolve, reject) => {
     const ffmpeg = spawn('ffmpeg', [
       '-i', inputPath,
-      '-ac', '1',           // mono
-      '-ar', '16000',       // 16kHz sample rate (sufficient for speech)
-      '-c:a', 'libopus',    // Opus codec
-      '-b:a', '24k',        // 24kbps (very efficient for speech)
+      '-ac', '1',             // mono
+      '-ar', '16000',         // 16kHz sample rate (sufficient for speech)
+      '-c:a', 'libopus',      // Opus codec
+      '-b:a', '24k',          // 24kbps (very efficient for speech)
       '-application', 'voip', // optimize for speech
       '-y',
       outputPath,
@@ -273,6 +311,9 @@ export async function compressAudioToOpus(inputPath: string): Promise<string> {
     });
   });
 }
+
+// Keep the exported version for the large file tool
+export { convertToOggOpus as compressAudioToOpus };
 
 /**
  * Prepare audio input with forced Opus compression for large files.
@@ -330,7 +371,7 @@ export async function prepareAudioInputCompressed(params: PrepareAudioParams): P
   }
 
   // Always compress to Opus
-  const processedPath = await compressAudioToOpus(tempPath);
+  const processedPath = await convertToOggOpus(tempPath);
   return {
     processedPath,
     mimeType: 'audio/ogg', // Opus in OGG container

@@ -47,8 +47,11 @@ This results in a transcript that's easy to read while faithfully preserving you
 
 ## Features
 
-- Supports audio formats: MP3, WAV, OGG, FLAC, AAC, AIFF, M4A
-- Automatic audio downsampling to optimize for Gemini's 16 Kbps processing resolution
+- **Gemini-native formats** (passed through directly): WAV, MP3, AIFF, AAC, OGG, FLAC
+  - [Source: Gemini API docs](https://ai.google.dev/gemini-api/docs/audio) (verified 2025-12-31)
+- **Extended formats** (automatically converted to OGG/Opus): Opus, M4A, WebM, WMA, AMR, 3GP, CAF, and more
+- Automatic conversion of unsupported formats to OGG/Opus (the most space-efficient format for speech)
+- Automatic compression of large files to stay within Gemini's size limits
 - Returns structured JSON with title, description, transcript, and timestamps
 - Multiple input methods: base64, URL, or SSH/SCP pull
 
@@ -124,6 +127,18 @@ export GEMINI_MODEL=gemini-2.5-flash-preview-05-20
 ```
 
 See [models.md](models.md) for detailed model information and selection guidance.
+
+### Auto-Save Transcripts
+
+By default, all transcripts are automatically saved to `./transcripts/` (relative to the current working directory). This means when you run Claude Code from your repository, transcripts are saved to `your-repo/transcripts/`.
+
+To customize the output directory:
+
+```bash
+export TRANSCRIPT_OUTPUT_DIR=/path/to/your/transcripts
+```
+
+To disable auto-save (transcripts returned but not saved to disk), set the env var to an empty string or use `output_dir: null` in individual tool calls.
 
 ## Usage
 

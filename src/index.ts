@@ -6,9 +6,16 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { transcribeAudio, transcribeAudioCompressed, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt } from './transcribe.js';
+import { transcribeAudio, transcribeAudioCompressed, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Default output directory for transcripts
+// Uses TRANSCRIPT_OUTPUT_DIR env var if set, otherwise defaults to ./transcripts (relative to cwd)
+// Set TRANSCRIPT_OUTPUT_DIR="" to disable auto-save
+const DEFAULT_OUTPUT_DIR = process.env.TRANSCRIPT_OUTPUT_DIR !== undefined
+  ? process.env.TRANSCRIPT_OUTPUT_DIR || undefined  // Empty string = disabled
+  : './transcripts';  // Default when env var not set
 
 function slugify(text: string): string {
   return text
@@ -23,7 +30,7 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.3.1',
+    version: '0.5.0',
   },
   {
     capabilities: {
@@ -276,6 +283,52 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'transcribe_audio_devspec',
+        description:
+          'Transcribes an audio file containing a project description and formats it as a Development Specification for AI coding agents. Use this when the user is dictating requirements, features, or technical ideas that should be structured for implementation. Outputs a spec with sections: Project Overview, Requirements, Technical Constraints, Architecture Notes, User Stories, API Definitions, Success Criteria, and Open Questions.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_content: {
+              type: 'string',
+              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+            },
+            file_url: {
+              type: 'string',
+              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+            },
+            ssh_host: {
+              type: 'string',
+              description:
+                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+            },
+            ssh_path: {
+              type: 'string',
+              description: 'Remote file path on the SSH host. Provide with ssh_host.',
+            },
+            ssh_user: {
+              type: 'string',
+              description: 'Optional SSH username when pulling the file.',
+            },
+            ssh_port: {
+              type: 'number',
+              description: 'Optional SSH port when pulling the file.',
+            },
+            file_name: {
+              type: 'string',
+              description:
+                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
+            },
+            output_dir: {
+              type: 'string',
+              description:
+                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -287,6 +340,7 @@ const VALID_TOOLS = [
   'transcribe_audio_custom',
   'transcribe_audio_format',
   'transcribe_audio_large',
+  'transcribe_audio_devspec',
 ] as const;
 
 type ToolName = (typeof VALID_TOOLS)[number];
@@ -376,6 +430,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       customPrompt = userCustomPrompt;
     } else if (name === 'transcribe_audio_format') {
       customPrompt = generateFormatPrompt(format!);
+    } else if (name === 'transcribe_audio_devspec') {
+      customPrompt = DEVSPEC_PROMPT;
     }
     // transcribe_audio and transcribe_audio_large use default prompt (undefined)
 
@@ -393,12 +449,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       customPrompt,
     });
 
-    // If output_dir is provided, save the transcript as a markdown file
+    // If output_dir is provided (or DEFAULT_OUTPUT_DIR is set), save the transcript as a markdown file
+    const effectiveOutputDir = outputDir || DEFAULT_OUTPUT_DIR;
     let savedFilePath: string | undefined;
-    if (outputDir) {
+    if (effectiveOutputDir) {
       const slug = slugify(result.title || 'transcript');
       const filename = `${slug}.md`;
-      savedFilePath = path.join(outputDir, filename);
+      savedFilePath = path.join(effectiveOutputDir, filename);
 
       // Create markdown content
       const markdownContent = `# ${result.title}
@@ -413,8 +470,8 @@ ${result.transcript}
 `;
 
       // Ensure directory exists
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
+      if (!fs.existsSync(effectiveOutputDir)) {
+        fs.mkdirSync(effectiveOutputDir, { recursive: true });
       }
 
       fs.writeFileSync(savedFilePath, markdownContent, 'utf-8');

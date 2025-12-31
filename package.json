@@ -1,6 +1,6 @@
 {
   "name": "gemini-transcription-mcp",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "MCP server for audio transcription using Google Gemini multimodal API",
   "type": "module",
   "main": "dist/index.js",
