@@ -7,6 +7,7 @@ export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generat
 import {
   prepareAudioInput,
   prepareAudioInputCompressed,
+  prepareAudioInputWithVad,
   cleanupTempFiles,
   PreparedAudioInfo,
   PrepareAudioParams,
@@ -226,6 +227,100 @@ export async function transcribeAudioCompressed(
       config: {
         mimeType: audioInfo.mimeType,
         displayName: `transcription_compressed_${Date.now()}`,
+      },
+    });
+
+    uploadedFileName = uploadResult.name!;
+
+    // Wait for file to be processed
+    await waitForFileProcessing(ai, uploadedFileName);
+
+    // Get the file again to ensure we have the URI
+    const uploadedFile = await ai.files.get({ name: uploadedFileName });
+
+    // Use custom prompt if provided, otherwise use the default transcription prompt
+    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
+
+    // Generate content
+    const result = await ai.models.generateContent({
+      model: getModelName(),
+      contents: createUserContent([
+        createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
+        promptToUse,
+      ]),
+    });
+
+    const text = result.text;
+    if (!text) {
+      throw new Error('No text response from Gemini');
+    }
+
+    // Parse the JSON response
+    const parsed = parseJsonResponse(text);
+    const timestamps = formatTimestamp();
+
+    return {
+      title: parsed.title || 'Voice Note',
+      description: parsed.description || 'Transcribed voice note.',
+      transcript: parsed.transcript || text,
+      timestamp: timestamps.iso,
+      timestamp_readable: timestamps.readable,
+    };
+  } finally {
+    // Cleanup temp files
+    if (audioInfo) {
+      cleanupTempFiles(audioInfo);
+    }
+    // Delete uploaded file from Gemini
+    if (uploadedFileName) {
+      try {
+        await ai.files.delete({ name: uploadedFileName });
+      } catch {
+        // Ignore deletion errors
+      }
+    }
+  }
+}
+
+/**
+ * Transcribe audio with Voice Activity Detection (VAD) preprocessing.
+ * Uses Silero VAD to strip silence and non-speech audio before transcription.
+ * This is an aggressive preprocessing option that can improve transcription
+ * quality and reduce file size for audio with significant silence/pauses.
+ */
+export async function transcribeAudioWithVad(
+  input: TranscribeInput
+): Promise<TranscriptionResponse> {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  let audioInfo: PreparedAudioInfo | null = null;
+  let uploadedFileName: string | null = null;
+
+  try {
+    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
+      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
+    }
+
+    // Prepare audio with VAD preprocessing (strips silence)
+    audioInfo = await prepareAudioInputWithVad({
+      fileContent: input.fileContent,
+      fileUrl: input.fileUrl,
+      fileName: input.fileName,
+      sshHost: input.sshHost,
+      sshPath: input.sshPath,
+      sshUser: input.sshUser,
+      sshPort: input.sshPort,
+    });
+
+    // Read file and create blob for upload
+    const fileBuffer = fs.readFileSync(audioInfo.processedPath);
+    const fileBlob = new Blob([fileBuffer], { type: audioInfo.mimeType });
+
+    // Upload to Gemini
+    const uploadResult = await ai.files.upload({
+      file: fileBlob,
+      config: {
+        mimeType: audioInfo.mimeType,
+        displayName: `transcription_vad_${Date.now()}`,
       },
     });
 

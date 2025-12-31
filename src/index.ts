@@ -6,7 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { transcribeAudio, transcribeAudioCompressed, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
+import { transcribeAudio, transcribeAudioCompressed, transcribeAudioWithVad, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -30,7 +30,7 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.5.0',
+    version: '0.6.0',
   },
   {
     capabilities: {
@@ -46,7 +46,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio',
         description:
-          'Transcribes an audio file using Google Gemini multimodal API. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Includes metadata (title, description, timestamps). Supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. This is the recommended tool for most use cases.',
+          'Transcribes an audio file using Google Gemini multimodal API. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Includes metadata (title, description, timestamps). Natively supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Other formats (Opus, WebM, M4A, etc.) are automatically converted to OGG/Opus - prefer MP3 for manual conversions as it offers good compression with broad compatibility. This is the recommended tool for most use cases.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -329,6 +329,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'transcribe_audio_vad',
+        description:
+          'Transcribes an audio file with Voice Activity Detection (VAD) preprocessing using Silero VAD. This aggressively removes silence and non-speech audio before transcription, reducing file size and potentially improving transcription quality. Best for recordings with significant pauses, background noise, or long silences. Supports both edited (default) and raw transcription modes via the raw parameter. Supports all audio formats.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_content: {
+              type: 'string',
+              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+            },
+            file_url: {
+              type: 'string',
+              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+            },
+            ssh_host: {
+              type: 'string',
+              description:
+                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+            },
+            ssh_path: {
+              type: 'string',
+              description: 'Remote file path on the SSH host. Provide with ssh_host.',
+            },
+            ssh_user: {
+              type: 'string',
+              description: 'Optional SSH username when pulling the file.',
+            },
+            ssh_port: {
+              type: 'number',
+              description: 'Optional SSH port when pulling the file.',
+            },
+            file_name: {
+              type: 'string',
+              description:
+                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
+            },
+            output_dir: {
+              type: 'string',
+              description:
+                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
+            },
+            raw: {
+              type: 'boolean',
+              description:
+                'If true, returns a verbatim transcript preserving filler words and false starts. If false (default), returns a lightly edited transcript.',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -341,6 +392,7 @@ const VALID_TOOLS = [
   'transcribe_audio_format',
   'transcribe_audio_large',
   'transcribe_audio_devspec',
+  'transcribe_audio_vad',
 ] as const;
 
 type ToolName = (typeof VALID_TOOLS)[number];
@@ -372,6 +424,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ssh_port?: number;
     custom_prompt?: string;
     format?: string;
+    raw?: boolean;
   };
   const fileContent = typedArgs?.file_content;
   const fileUrl = typedArgs?.file_url;
@@ -383,6 +436,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const sshPort = typedArgs?.ssh_port;
   const userCustomPrompt = typedArgs?.custom_prompt;
   const format = typedArgs?.format;
+  const rawMode = typedArgs?.raw;
 
   if (!fileContent && !fileUrl && !sshHost) {
     return {
@@ -432,11 +486,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       customPrompt = generateFormatPrompt(format!);
     } else if (name === 'transcribe_audio_devspec') {
       customPrompt = DEVSPEC_PROMPT;
+    } else if (name === 'transcribe_audio_vad' && rawMode) {
+      customPrompt = RAW_TRANSCRIPTION_PROMPT;
     }
-    // transcribe_audio and transcribe_audio_large use default prompt (undefined)
+    // transcribe_audio, transcribe_audio_large, and transcribe_audio_vad (without raw) use default prompt
 
-    // Use compressed transcription for large files
-    const transcribeFn = name === 'transcribe_audio_large' ? transcribeAudioCompressed : transcribeAudio;
+    // Select the appropriate transcription function
+    let transcribeFn: typeof transcribeAudio;
+    if (name === 'transcribe_audio_large') {
+      transcribeFn = transcribeAudioCompressed;
+    } else if (name === 'transcribe_audio_vad') {
+      transcribeFn = transcribeAudioWithVad;
+    } else {
+      transcribeFn = transcribeAudio;
+    }
 
     const result = await transcribeFn({
       fileContent,
