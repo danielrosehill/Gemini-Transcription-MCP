@@ -2,10 +2,12 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import { transcribeAudio, transcribeAudioCompressed, transcribeAudioWithVad, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,7 +32,7 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.6.0',
+    version: '0.7.0',
   },
   {
     capabilities: {
@@ -567,11 +569,72 @@ ${result.transcript}
   }
 });
 
-// Start the server
+// Parse command line arguments for transport mode
+function getTransportMode(): { mode: 'stdio' | 'http'; port?: number } {
+  const args = process.argv.slice(2);
+
+  // Check for --http flag with optional port
+  const httpIndex = args.indexOf('--http');
+  if (httpIndex !== -1) {
+    const portArg = args[httpIndex + 1];
+    const port = portArg && !portArg.startsWith('-') ? parseInt(portArg, 10) : 3000;
+    return { mode: 'http', port: isNaN(port) ? 3000 : port };
+  }
+
+  // Check for MCP_TRANSPORT env var
+  if (process.env.MCP_TRANSPORT === 'http') {
+    const port = parseInt(process.env.MCP_PORT || '3000', 10);
+    return { mode: 'http', port: isNaN(port) ? 3000 : port };
+  }
+
+  // Default to stdio
+  return { mode: 'stdio' };
+}
+
+// Start the server with appropriate transport
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('Gemini Transcription MCP server running on stdio');
+  const { mode, port } = getTransportMode();
+
+  if (mode === 'http') {
+    // HTTP/Streamable transport for remote access (MetaMCP, aggregators)
+    const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
+      // Health check endpoint
+      if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', server: 'gemini-transcription-mcp' }));
+        return;
+      }
+
+      // MCP endpoint
+      if (req.url === '/mcp' || req.url === '/') {
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        });
+
+        // Connect the server to this transport
+        await server.connect(transport);
+
+        // Handle the request
+        await transport.handleRequest(req, res);
+        return;
+      }
+
+      // 404 for other paths
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found' }));
+    });
+
+    httpServer.listen(port, () => {
+      console.error(`Gemini Transcription MCP server running on http://0.0.0.0:${port}`);
+      console.error(`MCP endpoint: http://0.0.0.0:${port}/mcp`);
+      console.error(`Health check: http://0.0.0.0:${port}/health`);
+    });
+  } else {
+    // Stdio transport for local use (Claude Code, direct invocation)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('Gemini Transcription MCP server running on stdio');
+  }
 }
 
 main().catch((error) => {
