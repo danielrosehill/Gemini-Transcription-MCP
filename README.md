@@ -10,7 +10,7 @@ An MCP server for audio-to-text transcription using Google's Gemini multimodal A
 
 ```bash
 claude mcp add gemini-transcription -s user \
-  -e GEMINI_API_KEY=your-key \
+  -e OPENROUTER_API_KEY=your-key \
   -- npx -y gemini-transcription-mcp
 ```
 
@@ -25,26 +25,53 @@ Add to your `claude_desktop_config.json`:
       "command": "npx",
       "args": ["-y", "gemini-transcription-mcp"],
       "env": {
-        "GEMINI_API_KEY": "your-key"
+        "OPENROUTER_API_KEY": "your-key"
       }
     }
   }
 }
 ```
 
-### Remote Deployment (MetaMCP, MCP Aggregators)
+### MetaMCP
 
-For MCP aggregators that require HTTP transport:
+Add via the MetaMCP UI or import JSON:
+
+```json
+{
+  "mcpServers": {
+    "gemini-transcription": {
+      "command": "npx",
+      "args": ["-y", "gemini-transcription-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "your-key"
+      },
+      "description": "Audio transcription using Gemini models via OpenRouter"
+    }
+  }
+}
+```
+
+Or fill in the Add Server form manually:
+
+| Field | Value |
+|-------|-------|
+| **Command** | `npx` |
+| **Arguments** | `-y gemini-transcription-mcp` |
+| **Environment Variables** | `OPENROUTER_API_KEY=your-key` |
+
+### Remote Deployment (HTTP Transport)
+
+For deployments that require HTTP transport:
 
 ```bash
 # Using Docker (recommended for remote)
 docker run -d \
   -p 3000:3000 \
-  -e GEMINI_API_KEY=your-key \
+  -e OPENROUTER_API_KEY=your-key \
   ghcr.io/danielrosehill/gemini-transcription-mcp
 
 # Or run directly with HTTP transport
-GEMINI_API_KEY=your-key npx gemini-transcription-mcp --http 3000
+OPENROUTER_API_KEY=your-key npx gemini-transcription-mcp --http 3000
 ```
 
 The server exposes:
@@ -81,8 +108,8 @@ All tools accept audio via:
 
 | Environment Variable | Description |
 |---------------------|-------------|
-| `GEMINI_API_KEY` | Required. Your Gemini API key |
-| `GEMINI_MODEL` | Optional. Model to use (default: `gemini-flash-latest`) |
+| `OPENROUTER_API_KEY` | Required. Your OpenRouter API key |
+| `OPENROUTER_MODEL` | Optional. Model to use (default: Gemini Flash Lite) |
 | `TRANSCRIPT_OUTPUT_DIR` | Optional. Auto-save location (default: `./transcripts`). Set to empty string to disable. |
 | `MCP_TRANSPORT` | Optional. Set to `http` for HTTP transport mode |
 | `MCP_PORT` | Optional. Port for HTTP mode (default: `3000`) |
@@ -116,22 +143,15 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 ```
 
 ```bash
 # Create .env file with your API key
-echo "GEMINI_API_KEY=your-key" > .env
+echo "OPENROUTER_API_KEY=your-key" > .env
 
 # Start the service
 docker compose up -d
-```
-
-**MetaMCP Configuration:**
-
-Add the HTTP endpoint to your MetaMCP configuration:
-```
-http://your-server:3000/mcp
 ```
 
 ### Feature Availability by Deployment Type
@@ -151,7 +171,7 @@ http://your-server:3000/mcp
 
 - Node.js 18+
 - ffmpeg (for format conversion and VAD preprocessing)
-- [Gemini API key](https://aistudio.google.com/app/apikey)
+- [OpenRouter API key](https://openrouter.ai/keys)
 
 When using Docker, ffmpeg is included in the image.
 
@@ -164,10 +184,10 @@ npm install
 npm run build
 
 # Run locally
-GEMINI_API_KEY=your-key npm start
+OPENROUTER_API_KEY=your-key npm start
 
 # Run with HTTP transport
-GEMINI_API_KEY=your-key npm start -- --http 3000
+OPENROUTER_API_KEY=your-key MCP_TRANSPORT=http npm start
 
 # Build Docker image
 docker build -t gemini-transcription-mcp .
