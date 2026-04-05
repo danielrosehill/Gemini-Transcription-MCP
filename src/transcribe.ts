@@ -1,8 +1,8 @@
 import * as fs from 'fs';
-import { TranscriptionResponse } from './types.js';
-import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './prompt.js';
+import { TranscriptionResponse, DOWNSAMPLE_THRESHOLD_BYTES } from './types.js';
+import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt } from './prompt.js';
 
-export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt };
+export { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt };
 import {
   prepareAudioInput,
   prepareAudioInputCompressed,
@@ -145,11 +145,11 @@ async function callOpenRouter(
 export interface TranscribeInput extends PrepareAudioParams {
   customPrompt?: string;
   model?: string;
+  vad?: boolean;
 }
 
-async function transcribeWithPipeline(
-  input: TranscribeInput,
-  prepareFn: (params: PrepareAudioParams) => Promise<PreparedAudioInfo>,
+export async function transcribeAudio(
+  input: TranscribeInput
 ): Promise<TranscriptionResponse> {
   let audioInfo: PreparedAudioInfo | null = null;
 
@@ -158,7 +158,7 @@ async function transcribeWithPipeline(
       throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
     }
 
-    audioInfo = await prepareFn({
+    const prepareParams: PrepareAudioParams = {
       fileContent: input.fileContent,
       fileUrl: input.fileUrl,
       fileName: input.fileName,
@@ -166,7 +166,21 @@ async function transcribeWithPipeline(
       sshPath: input.sshPath,
       sshUser: input.sshUser,
       sshPort: input.sshPort,
-    });
+    };
+
+    // Pick pipeline: VAD if requested, otherwise standard
+    if (input.vad) {
+      audioInfo = await prepareAudioInputWithVad(prepareParams);
+    } else {
+      audioInfo = await prepareAudioInput(prepareParams);
+
+      // Auto-compress if the prepared file is still too large
+      const fileSize = fs.statSync(audioInfo.processedPath).size;
+      if (fileSize > DOWNSAMPLE_THRESHOLD_BYTES) {
+        cleanupTempFiles(audioInfo);
+        audioInfo = await prepareAudioInputCompressed(prepareParams);
+      }
+    }
 
     const fileBuffer = fs.readFileSync(audioInfo.processedPath);
     const audioBase64 = fileBuffer.toString('base64');
@@ -190,30 +204,4 @@ async function transcribeWithPipeline(
       cleanupTempFiles(audioInfo);
     }
   }
-}
-
-export async function transcribeAudio(
-  input: TranscribeInput
-): Promise<TranscriptionResponse> {
-  return transcribeWithPipeline(input, prepareAudioInput);
-}
-
-/**
- * Transcribe audio with forced Opus compression.
- * Use this for large files that exceed the 20MB limit.
- */
-export async function transcribeAudioCompressed(
-  input: TranscribeInput
-): Promise<TranscriptionResponse> {
-  return transcribeWithPipeline(input, prepareAudioInputCompressed);
-}
-
-/**
- * Transcribe audio with Voice Activity Detection (VAD) preprocessing.
- * Uses Silero VAD to strip silence and non-speech audio before transcription.
- */
-export async function transcribeAudioWithVad(
-  input: TranscribeInput
-): Promise<TranscriptionResponse> {
-  return transcribeWithPipeline(input, prepareAudioInputWithVad);
 }

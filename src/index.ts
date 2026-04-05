@@ -8,7 +8,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
-import { transcribeAudio, transcribeAudioCompressed, transcribeAudioWithVad, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
+import { transcribeAudio, RAW_TRANSCRIPTION_PROMPT, generateFormatPrompt } from './transcribe.js';
 import { listPresets, getPresetPrompt, wrapPresetForTranscription } from './presets.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,7 +33,7 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.7.0',
+    version: '0.8.0',
   },
   {
     capabilities: {
@@ -42,6 +42,50 @@ const server = new Server(
   }
 );
 
+// Common input properties shared across all transcription tools
+const COMMON_INPUT_PROPERTIES = {
+  model: {
+    type: 'string',
+    description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+  },
+  vad: {
+    type: 'boolean',
+    description: 'Enable Voice Activity Detection preprocessing. Strips silence and non-speech audio before transcription using Silero VAD. Useful for recordings with long pauses or background noise.',
+  },
+  file_content: {
+    type: 'string',
+    description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+  },
+  file_url: {
+    type: 'string',
+    description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+  },
+  ssh_host: {
+    type: 'string',
+    description: 'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+  },
+  ssh_path: {
+    type: 'string',
+    description: 'Remote file path on the SSH host. Provide with ssh_host.',
+  },
+  ssh_user: {
+    type: 'string',
+    description: 'Optional SSH username when pulling the file.',
+  },
+  ssh_port: {
+    type: 'number',
+    description: 'Optional SSH port when pulling the file.',
+  },
+  file_name: {
+    type: 'string',
+    description: 'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
+  },
+  output_dir: {
+    type: 'string',
+    description: 'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
+  },
+};
+
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -49,100 +93,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio',
         description:
-          'Transcribes an audio file using Gemini via OpenRouter. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Includes metadata (title, description, timestamps). Natively supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Other formats (Opus, WebM, M4A, etc.) are automatically converted to OGG/Opus - prefer MP3 for manual conversions as it offers good compression with broad compatibility. This is the recommended tool for most use cases.',
+          'Transcribes an audio file using Gemini via OpenRouter. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Large files are automatically compressed. Supports MP3, WAV, OGG, FLAC, AAC, AIFF, and many more formats (auto-converted). This is the recommended default tool.',
         inputSchema: {
           type: 'object',
-          properties: {
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
-          },
+          properties: { ...COMMON_INPUT_PROPERTIES },
           required: [],
         },
       },
       {
         name: 'transcribe_audio_raw',
         description:
-          'Transcribes an audio file using Gemini via OpenRouter. Returns a verbatim transcript with NO cleanup - includes filler words, false starts, and repetitions exactly as spoken. Includes metadata (title, description, timestamps). Supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Use this when you need exact speech-to-text without editing.',
+          'Transcribes an audio file using Gemini via OpenRouter. Returns a verbatim transcript with NO cleanup - preserves filler words, false starts, and repetitions exactly as spoken. Use this when you need exact speech-to-text without any editing.',
         inputSchema: {
           type: 'object',
-          properties: {
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
-          },
+          properties: { ...COMMON_INPUT_PROPERTIES },
           required: [],
         },
       },
@@ -158,45 +122,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'The custom prompt/instructions to send along with the audio. Should describe how to transcribe and format the content. The prompt should instruct the model to return JSON with at minimum a "transcript" field.',
             },
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
+            ...COMMON_INPUT_PROPERTIES,
           },
           required: ['custom_prompt'],
         },
@@ -204,263 +130,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio_format',
         description:
-          'Transcribes an audio file and formats it according to a specified output format (e.g., "email", "to-do list", "meeting notes", "technical document", "blog post"). The tool intelligently constructs appropriate formatting instructions. Use this when you want the transcription structured in a specific document format.',
+          'Transcribes an audio file and formats the output as a specific document type. Accepts any freeform format description. Use this when you want a quick ad-hoc format without browsing presets. For curated, high-quality formatting, use transcribe_with_preset instead.',
         inputSchema: {
           type: 'object',
           properties: {
             format: {
               type: 'string',
               description:
-                'The desired output format for the transcription. Examples: "email", "to-do list", "meeting notes", "technical document", "blog post", "executive summary", "letter", "report", "outline". Any format description is accepted.',
+                'The desired output format. Examples: "email", "to-do list", "meeting notes", "technical document", "blog post", "executive summary", "letter", "report", "outline", "development specification". Any description is accepted.',
             },
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
+            ...COMMON_INPUT_PROPERTIES,
           },
           required: ['format'],
         },
       },
       {
-        name: 'transcribe_audio_large',
-        description:
-          'Transcribes a large audio file by first compressing it to Opus format. Use this for files that exceed the 20MB limit. The tool converts audio to mono 16kHz Opus at 24kbps, which typically reduces a 1-hour WAV from ~600MB to ~10MB while preserving speech quality.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
-          },
-          required: [],
-        },
-      },
-      {
-        name: 'transcribe_audio_devspec',
-        description:
-          'Transcribes an audio file containing a project description and formats it as a Development Specification for AI coding agents. Use this when the user is dictating requirements, features, or technical ideas that should be structured for implementation. Outputs a spec with sections: Project Overview, Requirements, Technical Constraints, Architecture Notes, User Stories, API Definitions, Success Criteria, and Open Questions.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
-          },
-          required: [],
-        },
-      },
-      {
-        name: 'transcribe_audio_vad',
-        description:
-          'Transcribes an audio file with Voice Activity Detection (VAD) preprocessing using Silero VAD. This aggressively removes silence and non-speech audio before transcription, reducing file size and potentially improving transcription quality. Best for recordings with significant pauses, background noise, or long silences. Supports both edited (default) and raw transcription modes via the raw parameter. Supports all audio formats.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
-            raw: {
-              type: 'boolean',
-              description:
-                'If true, returns a verbatim transcript preserving filler words and false starts. If false (default), returns a lightly edited transcript.',
-            },
-          },
-          required: [],
-        },
-      },
-      {
         name: 'transcribe_with_preset',
         description:
-          'Transcribes an audio file and transforms the output using a preset from the Text-Transformation-Prompt-Library. Presets include formats like blog_outline, business_email, meeting_minutes, note_to_self, to_do_list, tech_documentation, and 200+ more. Use list_transcription_presets to see all available presets.',
+          'Transcribes audio and transforms the output using a curated preset. Presets are divided into two categories:\n\n' +
+          '**Styles** (modify tone/voice): formal, informal, academic, business, journalistic, assertive, flamboyant, minimalist, dejargonizer, simplify, victorian, shakespearean, etc.\n\n' +
+          '**Formats** (restructure into document type): blog_outline, business_email, meeting_minutes, note_to_self, to_do_list, tech_documentation, feature_request, bug_report, cover_letter, resume, newsletter, development_prompt, etc.\n\n' +
+          'Use list_transcription_presets to browse all 200+ available presets with category filters.',
         inputSchema: {
           type: 'object',
           properties: {
             preset: {
               type: 'string',
-              description: 'Name of the preset to apply (e.g. "blog_outline", "business_email", "note_to_self", "meeting_minutes", "tech_documentation"). Use underscores or spaces. Use list_transcription_presets to see all options.',
+              description: 'Name of the preset to apply (e.g. "blog_outline", "business_email", "note_to_self", "formal_tone", "dejargonizer"). Use underscores or spaces.',
             },
-            model: {
-              type: 'string',
-              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
-            },
-            file_content: {
-              type: 'string',
-              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
-            },
-            file_url: {
-              type: 'string',
-              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
-            },
-            ssh_host: {
-              type: 'string',
-              description:
-                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
-            },
-            ssh_path: {
-              type: 'string',
-              description: 'Remote file path on the SSH host. Provide with ssh_host.',
-            },
-            ssh_user: {
-              type: 'string',
-              description: 'Optional SSH username when pulling the file.',
-            },
-            ssh_port: {
-              type: 'number',
-              description: 'Optional SSH port when pulling the file.',
-            },
-            file_name: {
-              type: 'string',
-              description:
-                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
-            },
-            output_dir: {
-              type: 'string',
-              description:
-                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
-            },
+            ...COMMON_INPUT_PROPERTIES,
           },
           required: ['preset'],
         },
@@ -468,13 +166,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'list_transcription_presets',
         description:
-          'Lists all available transcription presets from the Text-Transformation-Prompt-Library. Returns preset names that can be used with the transcribe_with_preset tool. Includes formats, tones, styles, and use-case-specific transformations.',
+          'Lists available transcription presets from the Text-Transformation-Prompt-Library. Each preset is categorized as either a "style" (modifies tone/voice without changing structure) or a "format" (restructures content into a specific document type). Use these with the transcribe_with_preset tool.',
         inputSchema: {
           type: 'object',
           properties: {
+            category: {
+              type: 'string',
+              enum: ['style', 'format'],
+              description: 'Filter by category: "style" for tone/voice presets, "format" for document structure presets. Omit for all.',
+            },
             filter: {
               type: 'string',
-              description: 'Optional filter string to search preset names (e.g. "email", "blog", "meeting")',
+              description: 'Optional text filter to search preset names (e.g. "email", "blog", "meeting")',
             },
           },
           required: [],
@@ -490,9 +193,6 @@ const VALID_TOOLS = [
   'transcribe_audio_raw',
   'transcribe_audio_custom',
   'transcribe_audio_format',
-  'transcribe_audio_large',
-  'transcribe_audio_devspec',
-  'transcribe_audio_vad',
   'transcribe_with_preset',
   'list_transcription_presets',
 ] as const;
@@ -518,18 +218,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   // Handle list_transcription_presets separately (no audio input needed)
   if (name === 'list_transcription_presets') {
     try {
-      const filter = (args as { filter?: string })?.filter;
+      const listArgs = args as { filter?: string; category?: 'style' | 'format' };
       let presets = await listPresets();
-      if (filter) {
-        const f = filter.toLowerCase();
+      if (listArgs?.category) {
+        presets = presets.filter(p => p.category === listArgs.category);
+      }
+      if (listArgs?.filter) {
+        const f = listArgs.filter.toLowerCase();
         presets = presets.filter(p => p.slug.includes(f) || p.displayName.includes(f));
       }
-      const list = presets.map(p => p.slug);
+      const grouped = {
+        count: presets.length,
+        styles: presets.filter(p => p.category === 'style').map(p => p.slug),
+        formats: presets.filter(p => p.category === 'format').map(p => p.slug),
+      };
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ count: list.length, presets: list }, null, 2),
+            text: JSON.stringify(grouped, null, 2),
           },
         ],
       };
@@ -553,10 +260,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ssh_port?: number;
     custom_prompt?: string;
     format?: string;
-    raw?: boolean;
     model?: string;
     preset?: string;
+    vad?: boolean;
   };
+
   const fileContent = typedArgs?.file_content;
   const fileUrl = typedArgs?.file_url;
   const fileName = typedArgs?.file_name;
@@ -565,11 +273,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const sshPath = typedArgs?.ssh_path;
   const sshUser = typedArgs?.ssh_user;
   const sshPort = typedArgs?.ssh_port;
-  const userCustomPrompt = typedArgs?.custom_prompt;
-  const format = typedArgs?.format;
-  const rawMode = typedArgs?.raw;
   const model = typedArgs?.model;
-  const preset = typedArgs?.preset;
+  const vad = typedArgs?.vad;
 
   if (!fileContent && !fileUrl && !sshHost) {
     return {
@@ -584,37 +289,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   // Validate required parameters for specific tools
-  if (name === 'transcribe_audio_custom' && !userCustomPrompt) {
+  if (name === 'transcribe_audio_custom' && !typedArgs?.custom_prompt) {
     return {
       content: [
-        {
-          type: 'text',
-          text: 'Missing required parameter: custom_prompt is required for transcribe_audio_custom',
-        },
+        { type: 'text', text: 'Missing required parameter: custom_prompt is required for transcribe_audio_custom' },
       ],
       isError: true,
     };
   }
 
-  if (name === 'transcribe_audio_format' && !format) {
+  if (name === 'transcribe_audio_format' && !typedArgs?.format) {
     return {
       content: [
-        {
-          type: 'text',
-          text: 'Missing required parameter: format is required for transcribe_audio_format',
-        },
+        { type: 'text', text: 'Missing required parameter: format is required for transcribe_audio_format' },
       ],
       isError: true,
     };
   }
 
-  if (name === 'transcribe_with_preset' && !preset) {
+  if (name === 'transcribe_with_preset' && !typedArgs?.preset) {
     return {
       content: [
-        {
-          type: 'text',
-          text: 'Missing required parameter: preset is required for transcribe_with_preset',
-        },
+        { type: 'text', text: 'Missing required parameter: preset is required for transcribe_with_preset' },
       ],
       isError: true,
     };
@@ -626,30 +322,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === 'transcribe_audio_raw') {
       customPrompt = RAW_TRANSCRIPTION_PROMPT;
     } else if (name === 'transcribe_audio_custom') {
-      customPrompt = userCustomPrompt;
+      customPrompt = typedArgs.custom_prompt;
     } else if (name === 'transcribe_audio_format') {
-      customPrompt = generateFormatPrompt(format!);
-    } else if (name === 'transcribe_audio_devspec') {
-      customPrompt = DEVSPEC_PROMPT;
-    } else if (name === 'transcribe_audio_vad' && rawMode) {
-      customPrompt = RAW_TRANSCRIPTION_PROMPT;
+      customPrompt = generateFormatPrompt(typedArgs.format!);
     } else if (name === 'transcribe_with_preset') {
-      const presetData = await getPresetPrompt(preset!);
+      const presetData = await getPresetPrompt(typedArgs.preset!);
       customPrompt = wrapPresetForTranscription(presetData.prompt);
     }
-    // transcribe_audio, transcribe_audio_large, and transcribe_audio_vad (without raw) use default prompt
+    // transcribe_audio uses default prompt
 
-    // Select the appropriate transcription function
-    let transcribeFn: typeof transcribeAudio;
-    if (name === 'transcribe_audio_large') {
-      transcribeFn = transcribeAudioCompressed;
-    } else if (name === 'transcribe_audio_vad') {
-      transcribeFn = transcribeAudioWithVad;
-    } else {
-      transcribeFn = transcribeAudio;
-    }
-
-    const result = await transcribeFn({
+    const result = await transcribeAudio({
       fileContent,
       fileUrl,
       fileName,
@@ -659,6 +341,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       sshPort,
       customPrompt,
       model,
+      vad,
     });
 
     // If output_dir is provided (or DEFAULT_OUTPUT_DIR is set), save the transcript as a markdown file
@@ -669,7 +352,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const filename = `${slug}.md`;
       savedFilePath = path.join(effectiveOutputDir, filename);
 
-      // Create markdown content
       const markdownContent = `# ${result.title}
 
 > ${result.description}
@@ -681,7 +363,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 ${result.transcript}
 `;
 
-      // Ensure directory exists
       if (!fs.existsSync(effectiveOutputDir)) {
         fs.mkdirSync(effectiveOutputDir, { recursive: true });
       }
@@ -689,7 +370,6 @@ ${result.transcript}
       fs.writeFileSync(savedFilePath, markdownContent, 'utf-8');
     }
 
-    // Include saved path in response if file was saved
     const response = savedFilePath
       ? { ...result, saved_to: savedFilePath }
       : result;
@@ -720,7 +400,6 @@ ${result.transcript}
 function getTransportMode(): { mode: 'stdio' | 'http'; port?: number } {
   const args = process.argv.slice(2);
 
-  // Check for --http flag with optional port
   const httpIndex = args.indexOf('--http');
   if (httpIndex !== -1) {
     const portArg = args[httpIndex + 1];
@@ -728,45 +407,35 @@ function getTransportMode(): { mode: 'stdio' | 'http'; port?: number } {
     return { mode: 'http', port: isNaN(port) ? 3000 : port };
   }
 
-  // Check for MCP_TRANSPORT env var
   if (process.env.MCP_TRANSPORT === 'http') {
     const port = parseInt(process.env.MCP_PORT || '3000', 10);
     return { mode: 'http', port: isNaN(port) ? 3000 : port };
   }
 
-  // Default to stdio
   return { mode: 'stdio' };
 }
 
-// Start the server with appropriate transport
 async function main() {
   const { mode, port } = getTransportMode();
 
   if (mode === 'http') {
-    // HTTP/Streamable transport for remote access (MetaMCP, aggregators)
     const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Health check endpoint
       if (req.url === '/health' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', server: 'gemini-transcription-mcp' }));
         return;
       }
 
-      // MCP endpoint
       if (req.url === '/mcp' || req.url === '/') {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substring(7)}`,
         });
 
-        // Connect the server to this transport
         await server.connect(transport);
-
-        // Handle the request
         await transport.handleRequest(req, res);
         return;
       }
 
-      // 404 for other paths
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not found' }));
     });
@@ -777,7 +446,6 @@ async function main() {
       console.error(`Health check: http://0.0.0.0:${port}/health`);
     });
   } else {
-    // Stdio transport for local use (Claude Code, direct invocation)
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error('Gemini Transcription MCP server running on stdio');

@@ -1,9 +1,12 @@
 const REPO_TREE_URL = 'https://api.github.com/repos/danielrosehill/Text-Transformation-Prompt-Library/git/trees/main?recursive=1';
 const RAW_BASE = 'https://raw.githubusercontent.com/danielrosehill/Text-Transformation-Prompt-Library/main';
 
+export type PresetCategory = 'style' | 'format';
+
 export interface PresetInfo {
   slug: string;
   displayName: string;
+  category: PresetCategory;
   path: string;
 }
 
@@ -13,14 +16,50 @@ interface PresetJson {
   system_prompt_text?: string;
 }
 
+// Style presets modify tone/voice without changing document structure
+const STYLE_SLUGS = new Set([
+  'academic_tone', 'assertive_text', 'brevity', 'business_tone',
+  'business_tone_general', 'clickbait_king', 'cryptic_dispatches',
+  'deadbeat_personality', 'de_imposter_syndome', 'dejargonizer',
+  'depressing_text', 'dramatic_style', 'emoji_maximiser',
+  'emotionally_sensitive', 'firm_but_polite_boundary_setting',
+  'first_to_third_person', 'flamboyant', 'formal_tone',
+  'formal_tone_general', 'grandpa_text', 'great_news',
+  'grey_rocking_text', 'highly_complex_instructions',
+  'highly_enthusiastic', 'humblebrag_this_text',
+  'hyperbolic_corporate_emails', 'i_failed', 'impress_the_boss',
+  'informal_tone', 'journalistic_style', 'k1_reading_level',
+  'light_edits_for_clarity', 'literary_and_formal', 'longwinded_messages',
+  'maximise_formality', 'minimalist', 'platitude_stuffer',
+  'polished_business_email', 'random_all_caps', 'random_foreign_words',
+  'say_nothing_at_length', 'shakespearean_emails', 'simplify',
+  'snobby_aristocrat', 'style_inverter', 'third_to_first_person',
+  'victorian', 'world_weary', 'add_random_accents',
+  'add_trigger_warnings', 'american_english_standardisation',
+  'british_english_standardisation',
+]);
+
+// Keywords that indicate a style preset (fallback for slugs not in the set)
+const STYLE_KEYWORDS = [
+  'tone', 'style', 'formal', 'informal', 'enthusiastic', 'emotional',
+  'polite', 'simplif', 'jargon', 'brevit', 'assertive', 'flamboyant',
+  'dramatic', 'literary', 'minimalist', 'victorian', 'shakespear',
+  'person', // first_to_third_person etc.
+];
+
+function categorizePreset(slug: string): PresetCategory {
+  if (STYLE_SLUGS.has(slug)) return 'style';
+  if (STYLE_KEYWORDS.some(kw => slug.includes(kw))) return 'style';
+  return 'format';
+}
+
 // Cache the preset list in memory for the lifetime of the process
 let cachedPresets: PresetInfo[] | null = null;
 
 function slugFromPath(filePath: string): string {
-  // "prompts/json/ blog_outline_270525.json" -> "blog_outline"
   let name = filePath.replace(/^prompts\/json\//, '').trim();
   name = name.replace(/\.json$/, '');
-  // Strip trailing date suffix like _270525 or _280525
+  // Strip trailing date suffix like _270525
   name = name.replace(/_\d{6}$/, '');
   return name.toLowerCase();
 }
@@ -53,6 +92,7 @@ export async function listPresets(): Promise<PresetInfo[]> {
     presets.push({
       slug,
       displayName: slug.replace(/_/g, ' '),
+      category: categorizePreset(slug),
       path: item.path,
     });
   }

@@ -1,6 +1,6 @@
 {
   "name": "gemini-transcription-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "MCP server for audio transcription using Gemini models via OpenRouter",
   "type": "module",
   "main": "dist/index.js",
@@ -24,7 +24,7 @@
     "transcription",
     "audio",
     "speech-to-text",
-    "google-gemini",
+    "openrouter",
     "claude-code"
   ],
   "author": "Daniel Rosehill <public@danielrosehill.com>",
