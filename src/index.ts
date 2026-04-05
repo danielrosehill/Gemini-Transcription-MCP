@@ -9,6 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import { transcribeAudio, transcribeAudioCompressed, transcribeAudioWithVad, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './transcribe.js';
+import { listPresets, getPresetPrompt, wrapPresetForTranscription } from './presets.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -48,10 +49,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio',
         description:
-          'Transcribes an audio file using Google Gemini multimodal API. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Includes metadata (title, description, timestamps). Natively supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Other formats (Opus, WebM, M4A, etc.) are automatically converted to OGG/Opus - prefer MP3 for manual conversions as it offers good compression with broad compatibility. This is the recommended tool for most use cases.',
+          'Transcribes an audio file using Gemini via OpenRouter. Returns a lightly edited transcript with filler words removed, verbal corrections applied, punctuation added, and paragraph breaks inserted. Includes metadata (title, description, timestamps). Natively supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Other formats (Opus, WebM, M4A, etc.) are automatically converted to OGG/Opus - prefer MP3 for manual conversions as it offers good compression with broad compatibility. This is the recommended tool for most use cases.',
         inputSchema: {
           type: 'object',
           properties: {
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
             file_content: {
               type: 'string',
               description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
@@ -94,10 +99,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio_raw',
         description:
-          'Transcribes an audio file using Google Gemini multimodal API. Returns a verbatim transcript with NO cleanup - includes filler words, false starts, and repetitions exactly as spoken. Includes metadata (title, description, timestamps). Supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Use this when you need exact speech-to-text without editing.',
+          'Transcribes an audio file using Gemini via OpenRouter. Returns a verbatim transcript with NO cleanup - includes filler words, false starts, and repetitions exactly as spoken. Includes metadata (title, description, timestamps). Supports MP3, WAV, OGG, FLAC, AAC, and AIFF formats. Use this when you need exact speech-to-text without editing.',
         inputSchema: {
           type: 'object',
           properties: {
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
             file_content: {
               type: 'string',
               description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
@@ -140,14 +149,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio_custom',
         description:
-          'Transcribes an audio file using Google Gemini multimodal API with a user-defined custom prompt. Provides full control over how Gemini processes and formats the transcription. Use this when you need specific transcription instructions not covered by other tools.',
+          'Transcribes an audio file using Gemini via OpenRouter with a user-defined custom prompt. Provides full control over how the model processes and formats the transcription. Use this when you need specific transcription instructions not covered by other tools.',
         inputSchema: {
           type: 'object',
           properties: {
             custom_prompt: {
               type: 'string',
               description:
-                'The custom prompt/instructions to send to Gemini along with the audio. Should describe how to transcribe and format the content. The prompt should instruct Gemini to return JSON with at minimum a "transcript" field.',
+                'The custom prompt/instructions to send along with the audio. Should describe how to transcribe and format the content. The prompt should instruct the model to return JSON with at minimum a "transcript" field.',
+            },
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
             },
             file_content: {
               type: 'string',
@@ -191,7 +204,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio_format',
         description:
-          'Transcribes an audio file and formats it according to a specified output format (e.g., "email", "to-do list", "meeting notes", "technical document", "blog post"). The tool intelligently constructs appropriate formatting instructions for Gemini. Use this when you want the transcription structured in a specific document format.',
+          'Transcribes an audio file and formats it according to a specified output format (e.g., "email", "to-do list", "meeting notes", "technical document", "blog post"). The tool intelligently constructs appropriate formatting instructions. Use this when you want the transcription structured in a specific document format.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -199,6 +212,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'string',
               description:
                 'The desired output format for the transcription. Examples: "email", "to-do list", "meeting notes", "technical document", "blog post", "executive summary", "letter", "report", "outline". Any format description is accepted.',
+            },
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
             },
             file_content: {
               type: 'string',
@@ -242,10 +259,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'transcribe_audio_large',
         description:
-          'Transcribes a large audio file by first compressing it to Opus format. Use this for files that exceed Gemini\'s 20MB limit. The tool converts audio to mono 16kHz Opus at 24kbps, which typically reduces a 1-hour WAV from ~600MB to ~10MB while preserving speech quality.',
+          'Transcribes a large audio file by first compressing it to Opus format. Use this for files that exceed the 20MB limit. The tool converts audio to mono 16kHz Opus at 24kbps, which typically reduces a 1-hour WAV from ~600MB to ~10MB while preserving speech quality.',
         inputSchema: {
           type: 'object',
           properties: {
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
             file_content: {
               type: 'string',
               description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
@@ -292,6 +313,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
             file_content: {
               type: 'string',
               description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
@@ -338,6 +363,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
             file_content: {
               type: 'string',
               description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
@@ -382,6 +411,75 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: 'transcribe_with_preset',
+        description:
+          'Transcribes an audio file and transforms the output using a preset from the Text-Transformation-Prompt-Library. Presets include formats like blog_outline, business_email, meeting_minutes, note_to_self, to_do_list, tech_documentation, and 200+ more. Use list_transcription_presets to see all available presets.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            preset: {
+              type: 'string',
+              description: 'Name of the preset to apply (e.g. "blog_outline", "business_email", "note_to_self", "meeting_minutes", "tech_documentation"). Use underscores or spaces. Use list_transcription_presets to see all options.',
+            },
+            model: {
+              type: 'string',
+              description: 'Model to use: "lite" for Gemini 3.1 Flash Lite (default, cost-efficient), "flash" for Gemini 3 Flash (more capable). Also accepts full OpenRouter model IDs.',
+            },
+            file_content: {
+              type: 'string',
+              description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+            },
+            file_url: {
+              type: 'string',
+              description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+            },
+            ssh_host: {
+              type: 'string',
+              description:
+                'SSH host (and optional port, e.g. host:2222) to pull the audio file from. Provide with ssh_path.',
+            },
+            ssh_path: {
+              type: 'string',
+              description: 'Remote file path on the SSH host. Provide with ssh_host.',
+            },
+            ssh_user: {
+              type: 'string',
+              description: 'Optional SSH username when pulling the file.',
+            },
+            ssh_port: {
+              type: 'number',
+              description: 'Optional SSH port when pulling the file.',
+            },
+            file_name: {
+              type: 'string',
+              description:
+                'Optional name of the audio file, including the extension. Helpful when using URLs without a filename.',
+            },
+            output_dir: {
+              type: 'string',
+              description:
+                'Optional directory path where the transcript will be saved as a markdown file. If provided, saves the transcript with a descriptive filename derived from the title.',
+            },
+          },
+          required: ['preset'],
+        },
+      },
+      {
+        name: 'list_transcription_presets',
+        description:
+          'Lists all available transcription presets from the Text-Transformation-Prompt-Library. Returns preset names that can be used with the transcribe_with_preset tool. Includes formats, tones, styles, and use-case-specific transformations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            filter: {
+              type: 'string',
+              description: 'Optional filter string to search preset names (e.g. "email", "blog", "meeting")',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -395,6 +493,8 @@ const VALID_TOOLS = [
   'transcribe_audio_large',
   'transcribe_audio_devspec',
   'transcribe_audio_vad',
+  'transcribe_with_preset',
+  'list_transcription_presets',
 ] as const;
 
 type ToolName = (typeof VALID_TOOLS)[number];
@@ -415,6 +515,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
+  // Handle list_transcription_presets separately (no audio input needed)
+  if (name === 'list_transcription_presets') {
+    try {
+      const filter = (args as { filter?: string })?.filter;
+      let presets = await listPresets();
+      if (filter) {
+        const f = filter.toLowerCase();
+        presets = presets.filter(p => p.slug.includes(f) || p.displayName.includes(f));
+      }
+      const list = presets.map(p => p.slug);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ count: list.length, presets: list }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: 'text', text: `Failed to list presets: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+
   const typedArgs = args as {
     file_content?: string;
     file_url?: string;
@@ -427,6 +554,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     custom_prompt?: string;
     format?: string;
     raw?: boolean;
+    model?: string;
+    preset?: string;
   };
   const fileContent = typedArgs?.file_content;
   const fileUrl = typedArgs?.file_url;
@@ -439,6 +568,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const userCustomPrompt = typedArgs?.custom_prompt;
   const format = typedArgs?.format;
   const rawMode = typedArgs?.raw;
+  const model = typedArgs?.model;
+  const preset = typedArgs?.preset;
 
   if (!fileContent && !fileUrl && !sshHost) {
     return {
@@ -477,6 +608,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
+  if (name === 'transcribe_with_preset' && !preset) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'Missing required parameter: preset is required for transcribe_with_preset',
+        },
+      ],
+      isError: true,
+    };
+  }
+
   try {
     // Determine the prompt based on tool name
     let customPrompt: string | undefined;
@@ -490,6 +633,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       customPrompt = DEVSPEC_PROMPT;
     } else if (name === 'transcribe_audio_vad' && rawMode) {
       customPrompt = RAW_TRANSCRIPTION_PROMPT;
+    } else if (name === 'transcribe_with_preset') {
+      const presetData = await getPresetPrompt(preset!);
+      customPrompt = wrapPresetForTranscription(presetData.prompt);
     }
     // transcribe_audio, transcribe_audio_large, and transcribe_audio_vad (without raw) use default prompt
 
@@ -512,6 +658,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       sshUser,
       sshPort,
       customPrompt,
+      model,
     });
 
     // If output_dir is provided (or DEFAULT_OUTPUT_DIR is set), save the transcript as a markdown file

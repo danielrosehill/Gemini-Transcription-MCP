@@ -1,7 +1,7 @@
 {
   "name": "gemini-transcription-mcp",
   "version": "0.7.0",
-  "description": "MCP server for audio transcription using Google Gemini multimodal API",
+  "description": "MCP server for audio transcription using Gemini models via OpenRouter",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -38,7 +38,6 @@
   },
   "homepage": "https://github.com/danielrosehill/Gemini-Transcription-MCP#readme",
   "dependencies": {
-    "@google/genai": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "avr-vad": "^1.0.9"
   },

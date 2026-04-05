@@ -1,4 +1,3 @@
-import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
 import * as fs from 'fs';
 import { TranscriptionResponse } from './types.js';
 import { TRANSCRIPTION_PROMPT, RAW_TRANSCRIPTION_PROMPT, DEVSPEC_PROMPT, generateFormatPrompt } from './prompt.js';
@@ -13,33 +12,32 @@ import {
   PrepareAudioParams,
 } from './audio.js';
 
-// Supported Gemini models for transcription
+// Supported models via OpenRouter
 const SUPPORTED_MODELS: Record<string, string> = {
-  '1': 'gemini-flash-latest',                  // Gemini Flash Latest - dynamic endpoint
-  '2': 'gemini-2.5-flash-preview-05-20',       // Gemini 2.5 Flash Preview
-  '3': 'gemini-2.5-flash-lite-preview-06-17',  // Gemini 2.5 Flash Lite (economic)
-  '4': 'gemini-3-flash-preview',               // Gemini 3 Flash Preview (newest)
+  'lite': 'google/gemini-3.1-flash-lite-preview',
+  'flash': 'google/gemini-3-flash-preview',
+  '1': 'google/gemini-3.1-flash-lite-preview',
+  '2': 'google/gemini-3-flash-preview',
 };
 
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'google/gemini-3.1-flash-lite-preview';
 
-function getModelName(): string {
-  const modelEnv = process.env.GEMINI_MODEL;
-  if (!modelEnv) {
+function getModelName(modelOverride?: string): string {
+  const modelInput = modelOverride || process.env.OPENROUTER_MODEL;
+  if (!modelInput) {
     return DEFAULT_MODEL;
   }
-  // Check if it's a shorthand number (1, 2, 3)
-  if (SUPPORTED_MODELS[modelEnv]) {
-    return SUPPORTED_MODELS[modelEnv];
+  if (SUPPORTED_MODELS[modelInput]) {
+    return SUPPORTED_MODELS[modelInput];
   }
-  // Otherwise use the value directly (allows custom model names)
-  return modelEnv;
+  // Allow custom model names to be passed through
+  return modelInput;
 }
 
 function getApiKey(): string {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY environment variable is not set');
+    throw new Error('OPENROUTER_API_KEY environment variable is not set');
   }
   return apiKey;
 }
@@ -58,21 +56,7 @@ function formatTimestamp(): { iso: string; readable: string } {
   return { iso, readable };
 }
 
-async function waitForFileProcessing(ai: GoogleGenAI, fileName: string): Promise<void> {
-  let file = await ai.files.get({ name: fileName });
-
-  while (file.state === 'PROCESSING') {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    file = await ai.files.get({ name: fileName });
-  }
-
-  if (file.state === 'FAILED') {
-    throw new Error('File processing failed in Gemini');
-  }
-}
-
 function parseJsonResponse(text: string): Partial<TranscriptionResponse> {
-  // Try to parse the response as JSON
   let cleaned = text.trim();
 
   // Remove markdown code blocks if present
@@ -89,7 +73,6 @@ function parseJsonResponse(text: string): Partial<TranscriptionResponse> {
   try {
     return JSON.parse(cleaned);
   } catch {
-    // If JSON parsing fails, return the text as transcript
     return {
       title: 'Voice Note',
       description: 'Transcribed voice note.',
@@ -98,280 +81,139 @@ function parseJsonResponse(text: string): Partial<TranscriptionResponse> {
   }
 }
 
+async function callOpenRouter(
+  audioBase64: string,
+  mimeType: string,
+  prompt: string,
+  model: string,
+): Promise<string> {
+  const apiKey = getApiKey();
+  const dataUrl = `data:${mimeType};base64,${audioBase64}`;
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://github.com/danielrosehill/Gemini-Transcription-MCP',
+      'X-Title': 'Gemini Transcription MCP',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: {
+                url: dataUrl,
+              },
+            },
+            {
+              type: 'text',
+              text: prompt,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`);
+  }
+
+  const data = await response.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+    error?: { message?: string };
+  };
+
+  if (data.error) {
+    throw new Error(`OpenRouter error: ${data.error.message}`);
+  }
+
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error('No text response from OpenRouter');
+  }
+
+  return text;
+}
+
 export interface TranscribeInput extends PrepareAudioParams {
   customPrompt?: string;
+  model?: string;
+}
+
+async function transcribeWithPipeline(
+  input: TranscribeInput,
+  prepareFn: (params: PrepareAudioParams) => Promise<PreparedAudioInfo>,
+): Promise<TranscriptionResponse> {
+  let audioInfo: PreparedAudioInfo | null = null;
+
+  try {
+    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
+      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
+    }
+
+    audioInfo = await prepareFn({
+      fileContent: input.fileContent,
+      fileUrl: input.fileUrl,
+      fileName: input.fileName,
+      sshHost: input.sshHost,
+      sshPath: input.sshPath,
+      sshUser: input.sshUser,
+      sshPort: input.sshPort,
+    });
+
+    const fileBuffer = fs.readFileSync(audioInfo.processedPath);
+    const audioBase64 = fileBuffer.toString('base64');
+    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
+    const model = getModelName(input.model);
+
+    const text = await callOpenRouter(audioBase64, audioInfo.mimeType, promptToUse, model);
+
+    const parsed = parseJsonResponse(text);
+    const timestamps = formatTimestamp();
+
+    return {
+      title: parsed.title || 'Voice Note',
+      description: parsed.description || 'Transcribed voice note.',
+      transcript: parsed.transcript || text,
+      timestamp: timestamps.iso,
+      timestamp_readable: timestamps.readable,
+    };
+  } finally {
+    if (audioInfo) {
+      cleanupTempFiles(audioInfo);
+    }
+  }
 }
 
 export async function transcribeAudio(
   input: TranscribeInput
 ): Promise<TranscriptionResponse> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  let audioInfo: PreparedAudioInfo | null = null;
-  let uploadedFileName: string | null = null;
-
-  try {
-    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
-      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
-    }
-
-    // Prepare audio file from base64 content or remote URL
-    audioInfo = await prepareAudioInput({
-      fileContent: input.fileContent,
-      fileUrl: input.fileUrl,
-      fileName: input.fileName,
-      sshHost: input.sshHost,
-      sshPath: input.sshPath,
-      sshUser: input.sshUser,
-      sshPort: input.sshPort,
-    });
-
-    // Read file and create blob for upload
-    const fileBuffer = fs.readFileSync(audioInfo.processedPath);
-    const fileBlob = new Blob([fileBuffer], { type: audioInfo.mimeType });
-
-    // Upload to Gemini
-    const uploadResult = await ai.files.upload({
-      file: fileBlob,
-      config: {
-        mimeType: audioInfo.mimeType,
-        displayName: `transcription_${Date.now()}`,
-      },
-    });
-
-    uploadedFileName = uploadResult.name!;
-
-    // Wait for file to be processed
-    await waitForFileProcessing(ai, uploadedFileName);
-
-    // Get the file again to ensure we have the URI
-    const uploadedFile = await ai.files.get({ name: uploadedFileName });
-
-    // Use custom prompt if provided, otherwise use the default transcription prompt
-    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
-
-    // Generate content
-    const result = await ai.models.generateContent({
-      model: getModelName(),
-      contents: createUserContent([
-        createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
-        promptToUse,
-      ]),
-    });
-
-    const text = result.text;
-    if (!text) {
-      throw new Error('No text response from Gemini');
-    }
-
-    // Parse the JSON response
-    const parsed = parseJsonResponse(text);
-    const timestamps = formatTimestamp();
-
-    return {
-      title: parsed.title || 'Voice Note',
-      description: parsed.description || 'Transcribed voice note.',
-      transcript: parsed.transcript || text,
-      timestamp: timestamps.iso,
-      timestamp_readable: timestamps.readable,
-    };
-  } finally {
-    // Cleanup temp files
-    if (audioInfo) {
-      cleanupTempFiles(audioInfo);
-    }
-    // Delete uploaded file from Gemini
-    if (uploadedFileName) {
-      try {
-        await ai.files.delete({ name: uploadedFileName });
-      } catch {
-        // Ignore deletion errors
-      }
-    }
-  }
+  return transcribeWithPipeline(input, prepareAudioInput);
 }
 
 /**
  * Transcribe audio with forced Opus compression.
- * Use this for large files that exceed Gemini's 20MB limit.
+ * Use this for large files that exceed the 20MB limit.
  */
 export async function transcribeAudioCompressed(
   input: TranscribeInput
 ): Promise<TranscriptionResponse> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  let audioInfo: PreparedAudioInfo | null = null;
-  let uploadedFileName: string | null = null;
-
-  try {
-    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
-      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
-    }
-
-    // Prepare audio with forced Opus compression
-    audioInfo = await prepareAudioInputCompressed({
-      fileContent: input.fileContent,
-      fileUrl: input.fileUrl,
-      fileName: input.fileName,
-      sshHost: input.sshHost,
-      sshPath: input.sshPath,
-      sshUser: input.sshUser,
-      sshPort: input.sshPort,
-    });
-
-    // Read file and create blob for upload
-    const fileBuffer = fs.readFileSync(audioInfo.processedPath);
-    const fileBlob = new Blob([fileBuffer], { type: audioInfo.mimeType });
-
-    // Upload to Gemini
-    const uploadResult = await ai.files.upload({
-      file: fileBlob,
-      config: {
-        mimeType: audioInfo.mimeType,
-        displayName: `transcription_compressed_${Date.now()}`,
-      },
-    });
-
-    uploadedFileName = uploadResult.name!;
-
-    // Wait for file to be processed
-    await waitForFileProcessing(ai, uploadedFileName);
-
-    // Get the file again to ensure we have the URI
-    const uploadedFile = await ai.files.get({ name: uploadedFileName });
-
-    // Use custom prompt if provided, otherwise use the default transcription prompt
-    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
-
-    // Generate content
-    const result = await ai.models.generateContent({
-      model: getModelName(),
-      contents: createUserContent([
-        createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
-        promptToUse,
-      ]),
-    });
-
-    const text = result.text;
-    if (!text) {
-      throw new Error('No text response from Gemini');
-    }
-
-    // Parse the JSON response
-    const parsed = parseJsonResponse(text);
-    const timestamps = formatTimestamp();
-
-    return {
-      title: parsed.title || 'Voice Note',
-      description: parsed.description || 'Transcribed voice note.',
-      transcript: parsed.transcript || text,
-      timestamp: timestamps.iso,
-      timestamp_readable: timestamps.readable,
-    };
-  } finally {
-    // Cleanup temp files
-    if (audioInfo) {
-      cleanupTempFiles(audioInfo);
-    }
-    // Delete uploaded file from Gemini
-    if (uploadedFileName) {
-      try {
-        await ai.files.delete({ name: uploadedFileName });
-      } catch {
-        // Ignore deletion errors
-      }
-    }
-  }
+  return transcribeWithPipeline(input, prepareAudioInputCompressed);
 }
 
 /**
  * Transcribe audio with Voice Activity Detection (VAD) preprocessing.
  * Uses Silero VAD to strip silence and non-speech audio before transcription.
- * This is an aggressive preprocessing option that can improve transcription
- * quality and reduce file size for audio with significant silence/pauses.
  */
 export async function transcribeAudioWithVad(
   input: TranscribeInput
 ): Promise<TranscriptionResponse> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  let audioInfo: PreparedAudioInfo | null = null;
-  let uploadedFileName: string | null = null;
-
-  try {
-    if (!input.fileContent && !input.fileUrl && !input.sshHost) {
-      throw new Error('Provide either fileContent (base64), fileUrl, or sshHost+sshPath for transcription');
-    }
-
-    // Prepare audio with VAD preprocessing (strips silence)
-    audioInfo = await prepareAudioInputWithVad({
-      fileContent: input.fileContent,
-      fileUrl: input.fileUrl,
-      fileName: input.fileName,
-      sshHost: input.sshHost,
-      sshPath: input.sshPath,
-      sshUser: input.sshUser,
-      sshPort: input.sshPort,
-    });
-
-    // Read file and create blob for upload
-    const fileBuffer = fs.readFileSync(audioInfo.processedPath);
-    const fileBlob = new Blob([fileBuffer], { type: audioInfo.mimeType });
-
-    // Upload to Gemini
-    const uploadResult = await ai.files.upload({
-      file: fileBlob,
-      config: {
-        mimeType: audioInfo.mimeType,
-        displayName: `transcription_vad_${Date.now()}`,
-      },
-    });
-
-    uploadedFileName = uploadResult.name!;
-
-    // Wait for file to be processed
-    await waitForFileProcessing(ai, uploadedFileName);
-
-    // Get the file again to ensure we have the URI
-    const uploadedFile = await ai.files.get({ name: uploadedFileName });
-
-    // Use custom prompt if provided, otherwise use the default transcription prompt
-    const promptToUse = input.customPrompt ?? TRANSCRIPTION_PROMPT;
-
-    // Generate content
-    const result = await ai.models.generateContent({
-      model: getModelName(),
-      contents: createUserContent([
-        createPartFromUri(uploadedFile.uri!, uploadedFile.mimeType!),
-        promptToUse,
-      ]),
-    });
-
-    const text = result.text;
-    if (!text) {
-      throw new Error('No text response from Gemini');
-    }
-
-    // Parse the JSON response
-    const parsed = parseJsonResponse(text);
-    const timestamps = formatTimestamp();
-
-    return {
-      title: parsed.title || 'Voice Note',
-      description: parsed.description || 'Transcribed voice note.',
-      transcript: parsed.transcript || text,
-      timestamp: timestamps.iso,
-      timestamp_readable: timestamps.readable,
-    };
-  } finally {
-    // Cleanup temp files
-    if (audioInfo) {
-      cleanupTempFiles(audioInfo);
-    }
-    // Delete uploaded file from Gemini
-    if (uploadedFileName) {
-      try {
-        await ai.files.delete({ name: uploadedFileName });
-      } catch {
-        // Ignore deletion errors
-      }
-    }
-  }
+  return transcribeWithPipeline(input, prepareAudioInputWithVad);
 }
