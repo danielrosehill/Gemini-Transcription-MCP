@@ -33,9 +33,19 @@ function slugify(text: string): string {
 const server = new Server(
   {
     name: 'gemini-transcription',
-    version: '0.8.0',
+    version: '0.8.1',
   },
   {
+    instructions:
+      'REMOTE FILE TRANSFER POLICY: this transcription server runs remotely from the ' +
+      "user's workstation. Local audio files on the workstation are NOT accessible. To " +
+      'transcribe a local audio file, the user must first run `s3-stage <path>` on the ' +
+      'workstation; that returns a presigned HTTPS URL. Pass it as `file_url`. DO NOT ' +
+      'base64-encode audio into `file_content` — audio files are large and base64 inlining ' +
+      'wastes context and frequently fails. SSH-pull (`ssh_host`/`ssh_path`) only works ' +
+      'when this server can SSH back to the workstation, which is not the default. If the ' +
+      'user asks to transcribe a local file and you have not been given a URL, instruct ' +
+      'them to run `s3-stage <path>` and paste the URL.',
     capabilities: {
       tools: {},
     },
@@ -54,11 +64,16 @@ const COMMON_INPUT_PROPERTIES = {
   },
   file_content: {
     type: 'string',
-    description: 'Base64-encoded content of the audio file to transcribe (provide this OR file_url)',
+    description:
+      'Base64-encoded audio content. AVOID for anything beyond a few seconds of audio — base64 ' +
+      'inlining of audio is large and unreliable. Prefer file_url with `s3-stage` for local ' +
+      'workstation files. Provide this OR file_url.',
   },
   file_url: {
     type: 'string',
-    description: 'HTTP(S) URL where the audio file can be fetched (provide this OR file_content)',
+    description:
+      'HTTP(S) URL where the audio file can be fetched. PREFERRED transport for remote clients — ' +
+      'use a presigned URL from `s3-stage <path>` on the workstation. Provide this OR file_content.',
   },
   ssh_host: {
     type: 'string',

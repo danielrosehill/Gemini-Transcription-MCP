@@ -1,6 +1,6 @@
 {
   "name": "gemini-transcription-mcp",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "MCP server for audio transcription using Gemini models via OpenRouter",
   "type": "module",
   "main": "dist/index.js",
