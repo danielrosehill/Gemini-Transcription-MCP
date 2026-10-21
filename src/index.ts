@@ -38,7 +38,7 @@ function createMcpServer(): Server {
   const server = new Server(
     {
       name: 'gemini-transcription',
-      version: '0.8.2',
+      version: '0.8.3',
     },
     {
       instructions:
@@ -531,9 +531,11 @@ function startHttpServer(port: number): void {
         },
       });
       const server = createMcpServer();
+      // Only drop the map entry here. Server.connect chains this handler into the
+      // transport's close path, so calling server.close() from it recurses until the stack
+      // overflows; the SDK already detaches the server when the transport closes.
       transport.onclose = () => {
         if (transport.sessionId) transports.delete(transport.sessionId);
-        void server.close();
       };
 
       await server.connect(transport);

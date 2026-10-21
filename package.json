@@ -1,6 +1,6 @@
 {
   "name": "gemini-transcription-mcp",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "MCP server for audio transcription using Gemini models via OpenRouter",
   "type": "module",
   "main": "dist/index.js",
@@ -38,7 +38,7 @@
   },
   "homepage": "https://github.com/danielrosehill/Gemini-Transcription-MCP#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "avr-vad": "^1.0.9"
   },
   "devDependencies": {
