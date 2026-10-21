@@ -1,64 +1,27 @@
 # Supported Gemini Models
 
-This MCP supports multiple Gemini Flash models for audio transcription. You can select which model to use via the `GEMINI_MODEL` environment variable.
+Transcription goes through OpenRouter. Pick a model with the `OPENROUTER_MODEL`
+environment variable or the per-call `model` tool argument (the argument wins).
 
-## Default Model
+Model IDs are **pinned**, not floating: a silent model swap changes transcript output,
+so upgrades are deliberate releases. Last reviewed 2026-10-21 against
+`https://openrouter.ai/api/v1/models`.
 
-**`gemini-flash-latest`**
+| Alias | OpenRouter model ID | Notes |
+|-------|---------------------|-------|
+| `flash` / `1` | `google/gemini-3.8-flash` | **Default.** Released on OpenRouter 2026-09-02. Audio $0.825/M tokens |
+| `lite` / `2` | `google/gemini-3.5-flash-lite` | Cheaper. Audio $0.30/M tokens |
+| `latest` | `~google/gemini-flash-latest` | OpenRouter's floating alias; tracks Google's current Flash, output can change without a release |
 
-This is the default model used when `GEMINI_MODEL` is not set. It's a dynamic endpoint maintained by Google that always points to the latest stable Flash model.
+Any other value is passed through to OpenRouter as a model ID, so new or batch models
+(`google/gemini-3.8-flash:batch`) work without a release, provided they accept audio input.
 
-## Available Models
+## History
 
-| Shorthand | Model ID | Description |
-|-----------|----------|-------------|
-| `1` | `gemini-flash-latest` | **Gemini Flash Latest** - Dynamic endpoint that tracks the latest Flash model. Recommended for most users. |
-| `2` | `gemini-2.5-flash-preview-05-20` | **Gemini 2.5 Flash Preview** - Preview version of Gemini 2.5 Flash with enhanced capabilities. |
-| `3` | `gemini-2.5-flash-lite-preview-06-17` | **Gemini 2.5 Flash Lite** - Economic version optimized for cost-efficiency. Good for high-volume transcription. |
-| `4` | `gemini-3-flash-preview` | **Gemini 3 Flash Preview** - The newest preview model with cutting-edge capabilities. |
+| Version | Default | Flash | Lite |
+|---------|---------|-------|------|
+| 0.8.2 | `google/gemini-3.8-flash` | `google/gemini-3.8-flash` | `google/gemini-3.5-flash-lite` |
+| 0.8.1 and earlier 0.8.x | `google/gemini-3.1-flash-lite-preview` | `google/gemini-3-flash-preview` | `google/gemini-3.1-flash-lite-preview` |
 
-## Configuration
-
-Set the `GEMINI_MODEL` environment variable to select a model:
-
-### Using shorthand numbers
-
-```bash
-# Use Gemini Flash Latest (default)
-export GEMINI_MODEL=1
-
-# Use Gemini 2.5 Flash Preview
-export GEMINI_MODEL=2
-
-# Use Gemini 2.5 Flash Lite (economic)
-export GEMINI_MODEL=3
-
-# Use Gemini 3 Flash Preview (newest)
-export GEMINI_MODEL=4
-```
-
-### Using full model names
-
-You can also specify the full model name directly:
-
-```bash
-export GEMINI_MODEL=gemini-flash-latest
-```
-
-This also allows using any Gemini model not in the shorthand list, such as future models or experimental endpoints.
-
-## Model Selection Guidance
-
-| Use Case | Recommended Model |
-|----------|-------------------|
-| General transcription | `1` (gemini-flash-latest) |
-| Stable preview features | `2` (gemini-2.5-flash-preview) |
-| High volume / cost-sensitive | `3` (gemini-2.5-flash-lite) |
-| Cutting-edge / experimental | `4` (gemini-3-flash-preview) |
-
-## Notes
-
-- All models support the same audio formats: MP3, WAV, OGG, FLAC, AAC, AIFF
-- Transcription quality may vary slightly between models
-- Preview models may have different rate limits or availability
-- The Lite model trades some capability for lower cost per request
+Versions before the move to OpenRouter used a `GEMINI_MODEL` variable against the
+Gemini API directly; that variable is no longer read.

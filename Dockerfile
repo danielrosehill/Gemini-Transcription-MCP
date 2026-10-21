@@ -22,6 +22,8 @@ COPY dist/ ./dist/
 ENV NODE_ENV=production
 ENV MCP_TRANSPORT=http
 ENV MCP_PORT=3000
+# Containers must listen on all interfaces; startup fails unless MCP_AUTH_TOKEN is also set
+ENV MCP_HOST=0.0.0.0
 
 # Expose the HTTP port
 EXPOSE 3000

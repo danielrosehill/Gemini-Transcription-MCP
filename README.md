@@ -64,19 +64,27 @@ Or fill in the Add Server form manually:
 For deployments that require HTTP transport:
 
 ```bash
-# Using Docker (recommended for remote)
+# Using Docker (recommended for remote) - the container listens on 0.0.0.0, so a token is required
 docker run -d \
   -p 3000:3000 \
   -e OPENROUTER_API_KEY=your-key \
+  -e MCP_AUTH_TOKEN=a-long-random-string \
   ghcr.io/danielrosehill/gemini-transcription-mcp
 
-# Or run directly with HTTP transport
+# Or run directly with HTTP transport (binds to 127.0.0.1 by default)
 OPENROUTER_API_KEY=your-key npx gemini-transcription-mcp --http 3000
 ```
 
 The server exposes:
-- `http://host:3000/mcp` - MCP endpoint (streamable HTTP)
-- `http://host:3000/health` - Health check
+- `http://host:3000/mcp` - MCP endpoint (streamable HTTP, one server instance per session)
+- `http://host:3000/health` - Health check (never requires auth)
+
+HTTP mode binds to `127.0.0.1` unless `MCP_HOST` is set. It refuses to start on a
+non-loopback address without `MCP_AUTH_TOKEN`, because the tools write files
+(`output_dir`) and pull audio over SCP with the server's own SSH keys (`ssh_host`).
+With a token set, clients send `Authorization: Bearer <token>` on every request.
+Before 0.8.2, HTTP mode listened on all interfaces with no authentication and a
+second request crashed the process.
 
 ## Tools
 
@@ -109,10 +117,12 @@ All tools accept audio via:
 | Environment Variable | Description |
 |---------------------|-------------|
 | `OPENROUTER_API_KEY` | Required. Your OpenRouter API key |
-| `OPENROUTER_MODEL` | Optional. Model to use (default: Gemini Flash Lite) |
+| `OPENROUTER_MODEL` | Optional. `flash` (default, `google/gemini-3.8-flash`), `lite` (`google/gemini-3.5-flash-lite`), `latest` (floating `~google/gemini-flash-latest`), or any OpenRouter model ID. See [models.md](models.md) |
 | `TRANSCRIPT_OUTPUT_DIR` | Optional. Auto-save location (default: `./transcripts`). Set to empty string to disable. |
 | `MCP_TRANSPORT` | Optional. Set to `http` for HTTP transport mode |
 | `MCP_PORT` | Optional. Port for HTTP mode (default: `3000`) |
+| `MCP_HOST` | Optional. Bind address for HTTP mode (default: `127.0.0.1`) |
+| `MCP_AUTH_TOKEN` | Optional on loopback, required on any other `MCP_HOST`. Bearer token clients must send |
 
 ## Deployment Options
 

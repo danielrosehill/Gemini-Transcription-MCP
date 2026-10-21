@@ -12,15 +12,18 @@ import {
   PrepareAudioParams,
 } from './audio.js';
 
-// Supported models via OpenRouter
+// Supported models via OpenRouter. Pinned rather than floating: a silent model swap
+// changes transcript output. Check https://openrouter.ai/api/v1/models for newer
+// audio-capable Gemini releases when bumping. Last reviewed 2026-10-21.
 const SUPPORTED_MODELS: Record<string, string> = {
-  'lite': 'google/gemini-3.1-flash-lite-preview',
-  'flash': 'google/gemini-3-flash-preview',
-  '1': 'google/gemini-3.1-flash-lite-preview',
-  '2': 'google/gemini-3-flash-preview',
+  'flash': 'google/gemini-3.8-flash',
+  'lite': 'google/gemini-3.5-flash-lite',
+  'latest': '~google/gemini-flash-latest', // OpenRouter's floating alias
+  '1': 'google/gemini-3.8-flash',
+  '2': 'google/gemini-3.5-flash-lite',
 };
 
-const DEFAULT_MODEL = 'google/gemini-3.1-flash-lite-preview';
+const DEFAULT_MODEL = 'google/gemini-3.8-flash';
 
 function getModelName(modelOverride?: string): string {
   const modelInput = modelOverride || process.env.OPENROUTER_MODEL;
